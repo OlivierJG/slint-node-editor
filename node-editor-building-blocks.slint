@@ -408,13 +408,18 @@ export component BaseNode inherits Rectangle {
         property <bool> was-selected-on-press: false;
         property <length> current-drag-offset-x: 0px;
         property <length> current-drag-offset-y: 0px;
+        // True for the duration of a press whose gesture should not produce
+        // any node behavior (no selection change, no drag, no double-click).
+        // Currently set for Ctrl/Cmd+left-click, which is reserved for
+        // canvas-level box selection. Slint's TouchArea always captures, so
+        // "fall-through" must be simulated by making the press inert here.
+        property <bool> press-inert: false;
 
         pointer-event(event) => {
-            // IMPORTANT: Ignore Ctrl+click to allow box selection through nodes
-            if event.button == PointerEventButton.left && event.modifiers.control {
-                return;
-            }
             if event.kind == PointerEventKind.down && event.button == PointerEventButton.left {
+                // Always initialize tracking state on press — even for inert
+                // presses — so `moved` and `up` never observe stale values
+                // from a previous interaction.
                 shift-held = event.modifiers.shift;
                 is-dragging = false;
                 // Store ABSOLUTE mouse position to avoid coordinate system issues
@@ -423,39 +428,46 @@ export component BaseNode inherits Rectangle {
                 current-drag-offset-x = 0px;
                 current-drag-offset-y = 0px;
                 was-selected-on-press = selected;
+                // Ctrl/Cmd+click is reserved for box-selection at the canvas
+                // level; the node makes itself inert for the rest of the gesture.
+                press-inert = event.modifiers.control;
 
-                // Only select immediately if shift is held (multi-select toggle)
-                // or if node is not already selected
-                if shift-held || !selected {
-                    root.clicked(node-id, shift-held);
-                }
-                // If node is already selected and shift not held, defer selection
-                // until we know if it's a drag or a click
-            }
-            if event.kind == PointerEventKind.up && event.button == PointerEventButton.left {
-                if is-dragging {
-                    // End drag using the tracked offset, not recalculated from mouse position
-                    root.drag-ended(node-id, current-drag-offset-x, current-drag-offset-y);
-                    is-dragging = false;
-                } else {
-                    // Click without drag - if we deferred selection, do it now
-                    if was-selected-on-press && !shift-held {
+                if !press-inert {
+                    // Only select immediately if shift is held (multi-select toggle)
+                    // or if node is not already selected. Otherwise defer selection
+                    // until release to distinguish click from drag.
+                    if shift-held || !selected {
                         root.clicked(node-id, shift-held);
                     }
-                    // Double-click detection
-                    if root.dbl-click-armed {
-                        root.double-clicked(node-id);
-                        root.dbl-click-armed = false;
+                }
+            }
+            if event.kind == PointerEventKind.up && event.button == PointerEventButton.left {
+                if !press-inert {
+                    if is-dragging {
+                        // End drag using the tracked offset, not recalculated from mouse position
+                        root.drag-ended(node-id, current-drag-offset-x, current-drag-offset-y);
+                        is-dragging = false;
                     } else {
-                        root.dbl-click-armed = true;
-                        dbl-click-timer.restart();
+                        // Click without drag - if we deferred selection, do it now
+                        if was-selected-on-press && !shift-held {
+                            root.clicked(node-id, shift-held);
+                        }
+                        // Double-click detection
+                        if root.dbl-click-armed {
+                            root.double-clicked(node-id);
+                            root.dbl-click-armed = false;
+                        } else {
+                            root.dbl-click-armed = true;
+                            dbl-click-timer.restart();
+                        }
                     }
                 }
+                press-inert = false;
             }
         }
 
         moved => {
-            if self.pressed {
+            if self.pressed && !press-inert {
                 // Calculate offset from start position using absolute coordinates
                 if !is-dragging {
                     if abs((self.absolute-position.x + self.mouse-x) - start-abs-x) > drag-threshold || abs((self.absolute-position.y + self.mouse-y) - start-abs-y) > drag-threshold {
