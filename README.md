@@ -101,6 +101,12 @@ export component MainWindow inherits Window {
 
     in property <[LinkData]> links; // Provided by your Rust backend
 
+    // A press anywhere in the editor gives it keyboard focus through this —
+    // `wire_node_editor!` connects it.
+    public function focus-editor() {
+        editor.focus();
+    }
+
     NodeEditor {
         id: editor;
         links: root.links; // Bind links model

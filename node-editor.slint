@@ -76,8 +76,13 @@ export enum BoxSelectionModifier {
 /// Computation-heavy operations are delegated to the application via callbacks.
 ///
 /// NodeEditor inherits FocusScope so it is the keyboard focus surface.
-/// Embedders call `editor.focus()` to focus programmatically; `focus-on-click`
-/// activates on click. **No key bindings are defined** — embedders own the
+/// Embedders call `editor.focus()` to focus programmatically. A press on the
+/// canvas, a node, a pin or the minimap focuses it, taking focus from any
+/// field inside a node, through `NodeEditorInternalCallbacks.take-editor-focus`
+/// — so the window must expose `public function focus-editor()` calling
+/// `editor.focus()`, which `wire_node_editor!` connects. A focusable item that
+/// accepts the press itself (a TextInput) keeps focus. **No key bindings are
+/// defined** — embedders own the
 /// keymap by wrapping the editor in a parent FocusScope that handles keys.
 /// State like `is-creating-link` and operations like `cancel-link-creation()`
 /// are exposed for embedders to bind as needed.
@@ -556,6 +561,7 @@ export component NodeEditor inherits FocusScope {
 
             pointer-event(event) => {
                 if event.kind == PointerEventKind.down {
+                    NodeEditorInternalCallbacks.take-editor-focus();
                     if event.button == PointerEventButton.middle {
                         // Start pan
                         root.internal-is-panning = true;

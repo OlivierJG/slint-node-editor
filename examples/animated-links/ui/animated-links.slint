@@ -172,6 +172,11 @@ export component MainWindow inherits Window {
     // Size for grid generation
     out property <float> width_: self.width / 1px;
     out property <float> height_: self.height / 1px;
+
+    // Every press inside the editor takes focus through this; see NodeEditor.
+    public function focus-editor() {
+        editor.focus();
+    }
     out property <float> zoom: editor.zoom;
 
     // Callbacks to Rust

@@ -79,6 +79,11 @@ export component MainWindow inherits Window {
     out property <float> width_: self.width / 1px;
     out property <float> height_: self.height / 1px;
 
+    // Every press inside the editor takes focus through this; see NodeEditor.
+    public function focus-editor() {
+        editor.focus();
+    }
+
     // Selection intents — Rust applies them and projects the result back into
     // `nodes`, which is where `selected` below comes from.
     callback node-selected <=> editor.node-selected;

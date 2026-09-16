@@ -48,6 +48,11 @@ export component MainWindow inherits Window {
     out property <float> width_: self.width / 1px;
     out property <float> height_: self.height / 1px;
 
+    // Every press inside the editor takes focus through this; see NodeEditor.
+    public function focus-editor() {
+        editor.focus();
+    }
+
     // Callbacks to Rust
     callback request-grid-update <=> editor.request-grid-update;
     // Note: geometry tracking and viewport changes are now handled via globals

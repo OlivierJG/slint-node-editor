@@ -11,7 +11,15 @@ import {
     GeometryVersion,
     NodeEditorInternalCallbacks,
     NodeEditorComputations,
+    Minimap,
 } from "@slint-node-editor/node-editor.slint";
+
+// Reaches the text field inside node 1, which the window cannot name: the
+// nodes are repeated.
+global NodeField {
+    in-out property <int> focus-version: 0;
+    in-out property <bool> has-focus: false;
+}
 
 export struct NodeData {
     id: int,
@@ -66,6 +74,25 @@ component SimpleNode inherits BaseNode {
         node-screen-x: root.screen-x;
         node-screen-y: root.screen-y;
     }
+
+    // A text field inside the node, clear of its centre and its pins.
+    field := TextInput {
+        x: 20px;
+        y: 70px;
+        width: 60px;
+        height: 20px;
+        changed has-focus => {
+            if root.node-id == 1 {
+                NodeField.has-focus = self.has-focus;
+            }
+        }
+    }
+    property <int> field-focus-version: NodeField.focus-version;
+    changed field-focus-version => {
+        if root.node-id == 1 {
+            field.focus();
+        }
+    }
 }
 
 export component MainWindow inherits Window {
@@ -80,6 +107,11 @@ export component MainWindow inherits Window {
     // Size for grid generation
     out property <float> width_: self.width / 1px;
     out property <float> height_: self.height / 1px;
+
+    // Every press inside the editor takes focus through this; see NodeEditor.
+    public function focus-editor() {
+        editor.focus();
+    }
 
     in-out property <length> pan-x <=> editor.pan-x;
     in-out property <length> pan-y <=> editor.pan-y;
@@ -108,6 +140,18 @@ export component MainWindow inherits Window {
         editor.refresh-links();
     }
 
+    // Text fields outside the editor and inside node 1, for checking that
+    // presses in the editor take keyboard focus from whatever held it.
+    out property <bool> probe-has-focus: probe.has-focus;
+    out property <bool> node-field-has-focus: NodeField.has-focus;
+    out property <bool> editor-has-focus: editor.has-focus;
+    public function focus-probe() {
+        probe.focus();
+    }
+    public function focus-node-field() {
+        NodeField.focus-version += 1;
+    }
+
     editor := NodeEditor {
         width: 100%;
         height: 100%;
@@ -121,5 +165,25 @@ export component MainWindow inherits Window {
             viewport-height: editor.height;
             selected: data.selected;
         }
+    }
+
+    Minimap {
+        x: 600px;
+        y: 450px;
+        minimap-width: 180px;
+        minimap-height: 135px;
+        viewport-x: editor.pan-x;
+        viewport-y: editor.pan-y;
+        viewport-width: editor.width;
+        viewport-height: editor.height;
+        graph-max-x: 800px;
+        graph-max-y: 600px;
+    }
+
+    probe := TextInput {
+        x: 700px;
+        y: 0px;
+        width: 100px;
+        height: 20px;
     }
 }

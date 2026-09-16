@@ -117,8 +117,12 @@ pub use tracking::GeometryTracker;
 
 /// Wire up all NodeEditor callbacks with a single macro call.
 ///
-/// This macro sets up default behavior for geometry tracking, computations, and grid updates.
-/// You can override any callback after calling this macro - the last `.on_*()` call wins.
+/// This macro sets up default behavior for geometry tracking, computations, grid updates and
+/// press focus. You can override any callback after calling this macro - the last `.on_*()`
+/// call wins.
+///
+/// The window must expose `grid-commands`, `width_`, `height_` and
+/// `public function focus-editor() { editor.focus(); }`.
 ///
 /// # Example
 ///
@@ -142,6 +146,14 @@ macro_rules! wire_node_editor {
         gc.on_report_node_rect($setup.report_node_rect());
         gc.on_report_pin_position($setup.report_pin_position());
         gc.on_end_node_drag($setup.end_node_drag());
+
+        // Press focus: synchronous, so a focus the press itself takes is not undone.
+        let w = $window.as_weak();
+        gc.on_take_editor_focus(move || {
+            if let Some(w) = w.upgrade() {
+                w.invoke_focus_editor();
+            }
+        });
 
         // Computations
         let computations = $window.global::<NodeEditorComputations>();
