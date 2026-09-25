@@ -44,3 +44,14 @@ Next time: Verify the full event sequence for batched changes and explicitly tes
 Revisit when: An API explicitly requires per-property events or provides a replaying subscription mechanism.
 Cost: Adversarial-review follow-up and additional regression coverage.
 Scope: project     Status: active
+
+## 2026-09-25 · Brace-matching patch on `TypeName {` also hits impl blocks · #integration-tests #tooling #python-patch
+Situation: Adding a `group_id: 0` field to 26 `NodeData { … }` literals across the integration tests with a Python brace-matching script keyed on the substring `NodeData {`.
+Tried: Matched every `NodeData {`, walked to the closing brace, and inserted the field before it when the block mentioned `selected`.
+Outcome: `impl MovableNode for NodeData { … }` in the harness matched too; the script turned its closing `}` into `},\n    group_id: 0,\n}` and the next edit script aborted on the corrupted anchor. Literals were all patched correctly.
+Evidence: harness.rs lines 42–45 after the run showed `    },` followed by `group_id: 0,` inside the impl; found by grepping for `}` + `,` preceding the inserted line.
+Hypothesis: A struct literal and an impl/fn body share the `Name {` prefix; the `selected` heuristic matched the impl because it has a `fn selected` method.
+Next time: Anchor literal patches on a preceding token that only literals have (`= NodeData {`, `vec![NodeData {`, `.map(|…| NodeData {`, `NodeData {` at line end after `(`), or require the block to contain `field:` pairs and no `fn `. Verify with a grep for the insertion signature in a non-literal context before compiling. Suggestion, not verified beyond this run.
+Revisit when: The patch is done by a syntax-aware tool (rust-analyzer structured edit) instead of text matching.
+Cost: One corrupted file, one aborted edit script, three extra tool calls.
+Scope: global-candidate     Status: active
