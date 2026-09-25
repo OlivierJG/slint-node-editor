@@ -30,6 +30,7 @@ struct ViewportState {
     pan_y: f32,
     bezier_offset: f32,
     dragged_node_id: i32,
+    dragged_group_id: i32,
     grid_spacing: f32,
     /// Links registered for hit testing, keyed by link ID.
     links: HashMap<i32, (i32, i32)>,
@@ -43,6 +44,7 @@ impl ViewportState {
             pan_y: 0.0,
             bezier_offset: 50.0,
             dragged_node_id: 0,
+            dragged_group_id: 0,
             grid_spacing: 24.0,
             links: HashMap::new(),
         }
@@ -131,6 +133,11 @@ impl NodeEditorController {
     /// Get the ID of the node currently being dragged (0 if none).
     pub fn dragged_node_id(&self) -> i32 {
         self.state.borrow().dragged_node_id
+    }
+
+    /// Get the ID of the group whose sheet is being dragged (0 if none).
+    pub fn dragged_group_id(&self) -> i32 {
+        self.state.borrow().dragged_group_id
     }
 
     // === Callback factories ===
@@ -227,12 +234,43 @@ impl NodeEditorController {
 
     /// Handle node-drag-started: track the dragged node.
     pub fn handle_node_drag_started(&self, node_id: i32) {
-        self.state.borrow_mut().dragged_node_id = node_id;
+        let mut s = self.state.borrow_mut();
+        s.dragged_node_id = node_id;
+        s.dragged_group_id = 0;
     }
 
-    /// Clear controller state after a drag ends or is cancelled.
+    /// Handle start-group-drag: track the dragged sheet.
+    pub fn handle_group_drag_started(&self, group_id: i32) {
+        let mut s = self.state.borrow_mut();
+        s.dragged_group_id = group_id;
+        s.dragged_node_id = 0;
+    }
+
+    /// Clear controller state after a node or group drag ends or is cancelled.
     pub fn handle_node_drag_finished(&self) {
-        self.state.borrow_mut().dragged_node_id = 0;
+        let mut s = self.state.borrow_mut();
+        s.dragged_node_id = 0;
+        s.dragged_group_id = 0;
+    }
+
+    /// Update a group sheet's displayed rectangle (world coordinates).
+    pub fn handle_group_rect(&self, id: i32, x: f32, y: f32, w: f32, h: f32) {
+        self.cache.borrow_mut().update_group_rect(id, x, y, w, h);
+    }
+
+    /// Retire a group sheet's rectangle and any drag of it.
+    pub fn remove_group(&self, group_id: i32) -> bool {
+        let removed = self.cache.borrow_mut().remove_group(group_id);
+        let mut state = self.state.borrow_mut();
+        if state.dragged_group_id == group_id {
+            state.dragged_group_id = 0;
+        }
+        removed
+    }
+
+    /// Record that a node is hidden (by a collapsed group) or visible again.
+    pub fn set_node_hidden(&self, node_id: i32, hidden: bool) {
+        self.cache.borrow_mut().set_node_hidden(node_id, hidden);
     }
 
     /// Set the zoom level (called from update-viewport).
@@ -310,6 +348,7 @@ impl NodeEditorController {
         let mut state = self.state.borrow_mut();
         state.links.clear();
         state.dragged_node_id = 0;
+        state.dragged_group_id = 0;
     }
 
     /// Clear only the geometry cache (node rects and pin positions).
@@ -656,6 +695,49 @@ mod tests {
         ctrl.handle_node_drag_finished();
 
         assert_eq!(ctrl.dragged_node_id(), 0);
+    }
+
+    #[test]
+    fn node_and_group_drags_are_exclusive_and_both_finish() {
+        let ctrl = NodeEditorController::new();
+        ctrl.handle_node_drag_started(1);
+        ctrl.handle_group_drag_started(7);
+        assert_eq!((ctrl.dragged_node_id(), ctrl.dragged_group_id()), (0, 7));
+
+        ctrl.handle_node_drag_started(2);
+        assert_eq!((ctrl.dragged_node_id(), ctrl.dragged_group_id()), (2, 0));
+
+        ctrl.handle_group_drag_started(7);
+        ctrl.handle_node_drag_finished();
+        assert_eq!((ctrl.dragged_node_id(), ctrl.dragged_group_id()), (0, 0));
+    }
+
+    #[test]
+    fn removing_a_group_retires_its_rect_and_drag() {
+        let ctrl = NodeEditorController::new();
+        ctrl.handle_group_rect(7, 1.0, 2.0, 3.0, 4.0);
+        ctrl.handle_group_drag_started(7);
+
+        assert!(ctrl.remove_group(7));
+        assert!(!ctrl.remove_group(7));
+        assert!(ctrl.cache().borrow().group_rects.is_empty());
+        assert_eq!(ctrl.dragged_group_id(), 0);
+
+        ctrl.handle_group_rect(8, 0.0, 0.0, 1.0, 1.0);
+        ctrl.handle_group_drag_started(8);
+        ctrl.reset_graph();
+        assert!(ctrl.cache().borrow().group_rects.is_empty());
+        assert_eq!(ctrl.dragged_group_id(), 0);
+    }
+
+    #[test]
+    fn hidden_nodes_are_projected_into_the_cache() {
+        let ctrl = setup_controller();
+        ctrl.set_node_hidden(1, true);
+        assert!(ctrl.cache().borrow().is_node_hidden(1));
+        assert_eq!(ctrl.find_pin_at_screen(100.0, 25.0, 10.0), 0);
+        ctrl.set_node_hidden(1, false);
+        assert_eq!(ctrl.find_pin_at_screen(100.0, 25.0, 10.0), 1001);
     }
 
     // ========================================================================

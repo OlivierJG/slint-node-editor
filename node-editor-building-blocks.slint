@@ -37,6 +37,9 @@ export global DragState {
     in-out property <bool> is-dragging: false;
     /// ID of the node currently being dragged (0 if none)
     in-out property <int> dragged-node-id: 0;
+    /// ID of the group whose sheet is being dragged (0 if none). A node drag
+    /// and a group drag are exclusive: at most one of the two IDs is set.
+    in-out property <int> dragged-group-id: 0;
     /// X offset of the drag operation
     in-out property <length> drag-offset-x: 0px;
     /// Y offset of the drag operation
@@ -128,6 +131,20 @@ export global SelectionRequest {
     in-out property <bool> shift-held: false;
 }
 
+/// Selection request for a group sheet - updated by BaseGroup, consumed by
+/// NodeEditor, which reports it as `group-selected`.
+export global GroupSelectionRequest {
+    in-out property <int> version: 0;
+    in-out property <int> group-id: 0;
+    in-out property <bool> shift-held: false;
+}
+
+/// Changes whenever a sheet's `collapsed` flag changes. Members read it so
+/// their visibility binding re-asks the host whether their group is collapsed.
+export global GroupVisibility {
+    in-out property <int> version: 0;
+}
+
 /// Hover state - updated by BaseNode, consumed by NodeEditor.
 /// Mirrors the node-selection flow: BaseNode writes the hovered node's ID here
 /// on pointer enter/exit and NodeEditor exposes it as `hovered-node-id`.
@@ -147,6 +164,12 @@ export global HoverState {
 export global NodeEditorEvents {
     /// A consumer-provided BaseNode was double-clicked.
     callback node-double-clicked(/* node-id */ int);
+    /// A group sheet was double-clicked.
+    callback group-double-clicked(/* group-id */ int);
+    /// The sheet's collapse affordance asked for an explicit collapsed state.
+    /// The host applies it to its group row (`wire_groups!` does this); the
+    /// target value, not a toggle, keeps a repeated request idempotent.
+    callback group-collapse-requested(/* group-id */ int, /* collapsed */ bool);
 }
 
 /// Internal callback registry for BaseNode/Pin → Rust communication.
@@ -192,6 +215,31 @@ export global NodeEditorInternalCallbacks {
     /// the host moves the dragged node, plus whatever else its rows show as
     /// selected. Nothing depends on when the press-time selection intent landed.
     callback end-node-drag(/* node-id */ int, /* delta-x */ length, /* delta-y */ length);
+    /// Report a group sheet's displayed rectangle (world coordinates).
+    callback report-group-rect(/* group-id */ int, /* x */ length, /* y */ length, /* width */ length, /* height */ length);
+    /// Retire projected geometry for a group sheet.
+    callback remove-group-from-cache(/* group-id */ int);
+    /// A node became hidden or visible. Hidden nodes keep their geometry but
+    /// are excluded from marquee, pin and link picking.
+    callback set-node-hidden(/* node-id */ int, /* hidden */ bool);
+    /// Start a group sheet drag.
+    callback start-group-drag(/* group-id */ int, /* world-x */ length, /* world-y */ length);
+    /// Update a group sheet drag.
+    callback update-group-drag(/* delta-x */ length, /* delta-y */ length);
+    /// End a group sheet drag. The host moves the dragged group, every other
+    /// selected group, the members of those groups and the selected nodes.
+    callback end-group-drag(/* group-id */ int, /* delta-x */ length, /* delta-y */ length);
+    /// Retire every active pointer gesture and clear the shared drag state,
+    /// so a stale release cannot commit a drag whose target is gone.
+    function retire-gestures() {
+        InteractionCancellation.version += 1;
+        DragState.is-dragging = false;
+        DragState.dragged-node-id = 0;
+        DragState.dragged-group-id = 0;
+        DragState.drag-offset-x = 0px;
+        DragState.drag-offset-y = 0px;
+    }
+
     /// Remove a node from the geometry projection and clear interactions that
     /// could still refer to it. Hosts must call this when removing a model row.
     public function remove-node(node-id: int) {
@@ -200,14 +248,12 @@ export global NodeEditorInternalCallbacks {
         }
         // Forwarded marquees may hold a grab on this node or one of its pins.
         // Their source is not tracked, so retire the active forwarded gesture.
-        if DragState.dragged-node-id == node-id || BoxSelectionGesture.state != BoxSelectionGestureState.idle {
-            InteractionCancellation.version += 1;
-        }
-        if DragState.dragged-node-id == node-id {
-            DragState.is-dragging = false;
-            DragState.dragged-node-id = 0;
-            DragState.drag-offset-x = 0px;
-            DragState.drag-offset-y = 0px;
+        // A node removed during a group drag may have been a member of the
+        // moving set, so that gesture is retired as well.
+        if DragState.dragged-node-id == node-id
+            || (DragState.is-dragging && DragState.dragged-group-id != 0)
+            || BoxSelectionGesture.state != BoxSelectionGestureState.idle {
+            self.retire-gestures();
         }
         if LinkCreation.state != LinkCreationState.idle {
             LinkCreation.state = LinkCreationState.idle;
@@ -215,6 +261,17 @@ export global NodeEditorInternalCallbacks {
         }
         LinkCreation.start-pin-id = 0;
         self.remove-node-from-cache(node-id);
+        GeometryVersion.request-version += 1;
+    }
+
+    /// Remove a group sheet from the geometry projection and cancel a drag of
+    /// it. Hosts must call this when removing a group row; membership on the
+    /// node rows is application data and stays the host's responsibility.
+    public function remove-group(group-id: int) {
+        if DragState.dragged-group-id == group-id || BoxSelectionGesture.state != BoxSelectionGestureState.idle {
+            self.retire-gestures();
+        }
+        self.remove-group-from-cache(group-id);
         GeometryVersion.request-version += 1;
     }
 
@@ -237,12 +294,8 @@ export global NodeEditorInternalCallbacks {
 
     /// Clear projected state before replacing the current graph.
     public function reset-graph() {
-        InteractionCancellation.version += 1;
+        self.retire-gestures();
         HoverState.hovered-node-id = 0;
-        DragState.is-dragging = false;
-        DragState.dragged-node-id = 0;
-        DragState.drag-offset-x = 0px;
-        DragState.drag-offset-y = 0px;
         if LinkCreation.state != LinkCreationState.idle {
             LinkCreation.state = LinkCreationState.idle;
             LinkCreation.version += 1;
@@ -293,6 +346,22 @@ export global NodeEditorComputations {
         /* x */ float,
         /* y */ float,
         /* pin-hit-radius */ float) -> int;
+
+    /// Does this group move with the current drag? True when the group's own
+    /// sheet is being dragged, or when the group is selected while a node or
+    /// another sheet is. BaseNode asks this for its members so the live
+    /// preview follows the same movement set the host commits with. An unwired
+    /// callback answers false. Installed by `wire_groups!`.
+    pure callback group-in-drag(
+        /* group-id */ int,
+        /* dragged-node-id */ int,
+        /* dragged-group-id */ int) -> bool;
+
+    /// Is this group collapsed? Members hide themselves while it is. The
+    /// version parameter (GroupVisibility.version) re-evaluates the binding
+    /// after a sheet's flag changes. An unwired callback answers false, so a
+    /// host without groups never hides a node. Installed by `wire_groups!`.
+    pure callback group-collapsed(/* group-id */ int, /* version */ int) -> bool;
 
     /// Compute link preview path (for link creation drag)
     pure callback compute-link-preview-path(
@@ -442,6 +511,43 @@ export struct LinkData {
     /// Computation status (-1 = no status, use color field; >= 0 = use status color).
     /// Default (0) maps to idle. Set to LinkStatus.none (-1) to use the color field.
     status: int,
+}
+
+/// Logical group data (what the application provides). One row per group;
+/// membership is the `group-id` on the node rows, not a list here.
+export struct GroupData {
+    id: int,
+    title: string,
+    /// Authoritative bounds in world coordinates. Changed by the host on
+    /// creation, membership change, an explicit fit, or a drag commit.
+    x: length,
+    y: length,
+    width: length,
+    height: length,
+    /// Sheet colour; a fully transparent colour uses GroupStyleDefaults.
+    color: color,
+    /// Members are hidden while the group is collapsed.
+    collapsed: bool,
+    /// Selection is per-row data like a node's; the editor never writes it.
+    selected: bool,
+}
+
+/// Styling for the default `GroupSheet`. Override these properties to
+/// restyle every sheet; use `GroupData.color` for one.
+export global GroupStyleDefaults {
+    in-out property <color> sheet-color: #4a7ab8;
+    /// Opacity of the sheet body. Sheets rendered by NodeEditor sit below
+    /// links, so the body may be opaque; a BaseGroup among the editor's
+    /// children sits above them and needs a translucent body.
+    in-out property <float> body-opacity: 0.18;
+    in-out property <float> header-opacity: 0.6;
+    in-out property <length> header-height: 32px;
+    in-out property <length> border-radius: 10px;
+    in-out property <length> border-width: 1px;
+    in-out property <length> border-width-selected: 2px;
+    in-out property <color> border-color-selected: #ffffff;
+    in-out property <color> title-color: #ffffff;
+    in-out property <length> title-font-size: 14px;
 }
 
 /// Minimap component for bird's-eye view of the node graph.
@@ -688,6 +794,163 @@ export component Link inherits Path {
     commands: geometry.commands;
 }
 
+/// The pointer gesture shared by BaseNode and BaseGroup.
+///
+/// A press selects, or defers selection to the release when the item is
+/// already selected, so dragging a selected item keeps the selection. A move
+/// past the threshold drags; a release commits or, without a drag, clicks.
+/// The configured modifier forwards a marquee to the editor instead. Owners
+/// turn the callbacks into intents: the gesture holds no ids and touches no
+/// shared drag state itself.
+component DragGesture inherits TouchArea {
+    /// The owner's current selection flag, latched at press time.
+    in property <bool> selected: false;
+    /// True while a drag is in progress.
+    out property <bool> is-dragging: false;
+    /// Live drag offset in world units; zero outside a drag.
+    out property <length> offset-x: 0px;
+    out property <length> offset-y: 0px;
+
+    /// The press (or the release of a click on a selected item) asked for a
+    /// selection change. `shift-held` is the toggle modifier.
+    callback selection-requested(/* shift-held */ bool);
+    /// The pointer moved past the threshold. `selected-at-press` answers "is
+    /// this item selected?" from press-time facts alone (it was, or this
+    /// press asked for it), so a drag never reads the flag back and never
+    /// depends on when the host applied the intent.
+    callback drag-started(/* selected-at-press */ bool);
+    callback drag-moved(/* delta-x */ length, /* delta-y */ length);
+    /// The drag released; the offsets are reset after this returns.
+    callback drag-ended(/* delta-x */ length, /* delta-y */ length);
+    callback item-double-clicked();
+
+    property <bool> shift-held: false;
+    property <length> drag-threshold: 5px;
+    property <length> start-abs-x: 0px;
+    property <length> start-abs-y: 0px;
+    property <bool> was-selected-on-press: false;
+    /// Whether this press emitted a selection intent.
+    property <bool> selection-intent-sent: false;
+    // True screen mouse position: absolute-position is in screen space,
+    // but self.mouse-x/y is in world space (inside scaled container)
+    property <length> screen-mouse-x: self.absolute-position.x + self.mouse-x * ViewportState.zoom;
+    property <length> screen-mouse-y: self.absolute-position.y + self.mouse-y * ViewportState.zoom;
+    // True while this area forwards the configured marquee gesture to the
+    // owning NodeEditor instead of selecting or dragging the item.
+    property <bool> forwarding-box-selection: false;
+    // Set by shared cancellation so the remainder of the current pointer
+    // sequence cannot restart a drag or turn into a click.
+    property <bool> press-cancelled: false;
+    property <bool> dbl-click-armed: false;
+    dbl-click-timer := Timer {
+        interval: 400ms;
+        triggered => {
+            root.dbl-click-armed = false;
+        }
+    }
+
+    public function cancel-gesture() {
+        root.is-dragging = false;
+        root.forwarding-box-selection = false;
+        root.press-cancelled = true;
+        root.offset-x = 0px;
+        root.offset-y = 0px;
+        root.selection-intent-sent = false;
+    }
+
+    pointer-event(event) => {
+        if event.kind == PointerEventKind.down {
+            NodeEditorInternalCallbacks.take-editor-focus();
+        }
+        if event.kind == PointerEventKind.down && event.button == PointerEventButton.left {
+            // Always initialize tracking state — even for inert presses —
+            // so `moved` and `up` never observe stale values.
+            root.shift-held = event.modifiers.shift;
+            root.is-dragging = false;
+            root.press-cancelled = false;
+            root.start-abs-x = root.screen-mouse-x;
+            root.start-abs-y = root.screen-mouse-y;
+            root.offset-x = 0px;
+            root.offset-y = 0px;
+            root.was-selected-on-press = root.selected;
+            root.selection-intent-sent = false;
+            root.forwarding-box-selection = NodeEditorGestureConfig.forces-box-selection(
+                event.modifiers.control,
+                event.modifiers.alt,
+                event.modifiers.shift,
+                event.modifiers.meta);
+
+            if root.forwarding-box-selection {
+                BoxSelectionGesture.x = root.screen-mouse-x;
+                BoxSelectionGesture.y = root.screen-mouse-y;
+                BoxSelectionGesture.extends-selection = event.modifiers.shift;
+                BoxSelectionGesture.state = BoxSelectionGestureState.started;
+                BoxSelectionGesture.version += 1;
+            } else if root.shift-held || !root.selected {
+                // Select immediately when shift toggles or the item is not
+                // yet selected. Otherwise defer to the release, to tell a
+                // click from a drag.
+                root.selection-requested(root.shift-held);
+                root.selection-intent-sent = true;
+            }
+        }
+        if event.kind == PointerEventKind.up && event.button == PointerEventButton.left {
+            if root.press-cancelled {
+                root.press-cancelled = false;
+            } else if root.forwarding-box-selection {
+                BoxSelectionGesture.x = root.screen-mouse-x;
+                BoxSelectionGesture.y = root.screen-mouse-y;
+                BoxSelectionGesture.state = BoxSelectionGestureState.complete;
+                BoxSelectionGesture.version += 1;
+            } else if root.is-dragging {
+                // Report the tracked offset, not one recalculated from the
+                // mouse position.
+                root.drag-ended(root.offset-x, root.offset-y);
+                root.is-dragging = false;
+                root.offset-x = 0px;
+                root.offset-y = 0px;
+            } else {
+                // Click without drag - apply the deferred selection now
+                if root.was-selected-on-press && !root.shift-held {
+                    root.selection-requested(root.shift-held);
+                }
+                if root.dbl-click-armed {
+                    root.item-double-clicked();
+                    root.dbl-click-armed = false;
+                } else {
+                    root.dbl-click-armed = true;
+                    dbl-click-timer.restart();
+                }
+            }
+            root.forwarding-box-selection = false;
+        }
+        if event.kind == PointerEventKind.cancel {
+            InteractionCancellation.version += 1;
+        }
+    }
+
+    moved => {
+        if self.pressed && !root.press-cancelled && root.forwarding-box-selection {
+            BoxSelectionGesture.x = root.screen-mouse-x;
+            BoxSelectionGesture.y = root.screen-mouse-y;
+            BoxSelectionGesture.state = BoxSelectionGestureState.updating;
+            BoxSelectionGesture.version += 1;
+        } else if self.pressed && !root.press-cancelled {
+            if !root.is-dragging {
+                if abs(root.screen-mouse-x - root.start-abs-x) > root.drag-threshold || abs(root.screen-mouse-y - root.start-abs-y) > root.drag-threshold {
+                    root.is-dragging = true;
+                    root.drag-started(root.was-selected-on-press || root.selection-intent-sent);
+                }
+            }
+            if root.is-dragging {
+                root.offset-x = (root.screen-mouse-x - root.start-abs-x) / ViewportState.zoom;
+                root.offset-y = (root.screen-mouse-y - root.start-abs-y) / ViewportState.zoom;
+                root.drag-moved(root.offset-x, root.offset-y);
+            }
+        }
+    }
+}
+
 /// Base component for all node types in the node editor.
 /// Nodes are positioned in pure WORLD coordinates. The parent container (at pan-x, pan-y)
 /// applies transform-scale for zoom, so nodes just use x: world-x, y: world-y directly.
@@ -701,6 +964,10 @@ export component BaseNode inherits Rectangle {
     // === Common Properties ===
     in property <int> node-id;
     in property <bool> selected: false;
+    /// The group this node belongs to, or 0 for none. Bind it from your model
+    /// row like `selected`: members follow their group's drag and are hidden
+    /// while it is collapsed.
+    in property <int> group-id: 0;
     in property <length> world-x;
     in property <length> world-y;
 
@@ -736,8 +1003,28 @@ export component BaseNode inherits Rectangle {
     // DragState.is-dragging in front, every node in the graph re-evaluates (and
     // repaints) on the drag start/end toggle. Selected-first scopes that toggle
     // to the selection, which is the set that moves anyway.
-    property <length> world-pos-x: world-x + persistent-offset-x + (root.selected && DragState.is-dragging && node-id != DragState.dragged-node-id ? DragState.drag-offset-x : drag-area.current-drag-offset-x);
-    property <length> world-pos-y: world-y + persistent-offset-y + (root.selected && DragState.is-dragging && node-id != DragState.dragged-node-id ? DragState.drag-offset-y : drag-area.current-drag-offset-y);
+    //
+    // A member also follows a shared drag when its group moves: the sheet is
+    // being dragged, or the group is selected while something else is. The
+    // host answers that through NodeEditorComputations.group-in-drag, the same
+    // predicate its drag commit uses, so the live preview and the committed
+    // positions cannot disagree. Ungrouped, unselected nodes never read the
+    // drag state at all.
+    property <bool> follows-shared-drag: (root.selected || root.group-id != 0)
+        && DragState.is-dragging
+        && node-id != DragState.dragged-node-id
+        && (root.selected || NodeEditorComputations.group-in-drag(root.group-id, DragState.dragged-node-id, DragState.dragged-group-id));
+    property <length> world-pos-x: world-x + persistent-offset-x + (root.follows-shared-drag ? DragState.drag-offset-x : drag-area.offset-x);
+    property <length> world-pos-y: world-y + persistent-offset-y + (root.follows-shared-drag ? DragState.drag-offset-y : drag-area.offset-y);
+
+    // === Collapse ===
+    // Collapse is a visibility projection: a member of a collapsed group is not
+    // rendered, takes no input, and reports itself hidden so the Rust cache
+    // excludes it from marquee, pin and link picking while keeping its
+    // geometry. The host answers from its group rows; an unwired callback
+    // means expanded. A subclass may override `visible` with its own policy;
+    // whatever it decides is what gets reported.
+    visible: root.group-id == 0 || !NodeEditorComputations.group-collapsed(root.group-id, GroupVisibility.version);
     // Screen position (for external reference only)
     out property <length> screen-x: world-pos-x * ViewportState.zoom + ViewportState.pan-x;
     out property <length> screen-y: world-pos-y * ViewportState.zoom + ViewportState.pan-y;
@@ -768,19 +1055,42 @@ export component BaseNode inherits Rectangle {
         }
     }
 
+    function report-visibility() {
+        if node-id != 0 {
+            NodeEditorInternalCallbacks.set-node-hidden(node-id, !self.visible);
+            GeometryVersion.request-version += 1;
+        }
+    }
+
     // Report rect on changes (in WORLD coordinates - without offset).
     // Guard against node-id == 0 (Slint default before parent binds the real ID).
     // Negative IDs are valid (e.g. viewport-anchored edge ports).
     init => {
         root.report-geometry();
+        // The cache's default for an unknown node is visible; only a node
+        // born hidden (its group already collapsed) has something to say.
+        if !self.visible {
+            root.report-visibility();
+        }
     }
 
     changed node-id => {
         root.report-geometry();
+        root.report-visibility();
     }
 
     changed projection-version => {
         root.report-geometry();
+        root.report-visibility();
+    }
+    changed visible => {
+        root.report-visibility();
+    }
+    changed group-id => {
+        // A membership change mid-gesture invalidates the movement set.
+        if DragState.is-dragging {
+            InteractionCancellation.version += 1;
+        }
     }
     changed interaction-cancellation-watch => {
         drag-area.cancel-gesture();
@@ -836,182 +1146,51 @@ export component BaseNode inherits Rectangle {
         }
     }
 
-    // === Double-click detection ===
-    property <bool> dbl-click-armed: false;
-    dbl-click-timer := Timer {
-        interval: 400ms;
-        triggered => {
-            root.dbl-click-armed = false;
-        }
-    }
-
     // === Drag Handling ===
-    // TouchArea covers the full node area
-    drag-area := TouchArea {
+    // The gesture covers the full node area; its intents carry this node's
+    // id and drive the shared drag state that other nodes follow.
+    drag-area := DragGesture {
         x: 0;
         y: 0;
         width: root.node-width;
         height: root.node-height;
+        selected: root.selected;
 
-        property <bool> shift-held: false;
-        property <bool> is-dragging: false;
-        property <length> drag-threshold: 5px;
-        property <length> start-abs-x: 0px;
-        property <length> start-abs-y: 0px;
-        property <bool> was-selected-on-press: false;
-        // Whether this press emitted a selection intent. Together with
-        // was-selected-on-press it answers "is this node selected?" from
-        // press-time facts alone, so the drag never has to read the flag back
-        // and never depends on when the host applied the intent.
-        property <bool> selection-intent-sent: false;
-        property <length> current-drag-offset-x: 0px;
-        property <length> current-drag-offset-y: 0px;
-
-        // True screen mouse position: absolute-position is in screen space,
-        // but self.mouse-x/y is in world space (inside scaled container)
-        property <length> screen-mouse-x: self.absolute-position.x + self.mouse-x * ViewportState.zoom;
-        property <length> screen-mouse-y: self.absolute-position.y + self.mouse-y * ViewportState.zoom;
-
-        // True while this area forwards the configured marquee gesture to the
-        // owning NodeEditor instead of selecting or dragging the node.
-        property <bool> forwarding-box-selection: false;
-        // Set by shared cancellation so the remainder of the current pointer
-        // sequence cannot restart a drag or turn into a click.
-        property <bool> press-cancelled: false;
-
-        function cancel-gesture() {
-            is-dragging = false;
-            forwarding-box-selection = false;
-            press-cancelled = true;
-            current-drag-offset-x = 0px;
-            current-drag-offset-y = 0px;
-            selection-intent-sent = false;
+        selection-requested(shift) => {
+            SelectionRequest.node-id = node-id;
+            SelectionRequest.shift-held = shift;
+            SelectionRequest.version += 1;
         }
-
-        pointer-event(event) => {
-            if event.kind == PointerEventKind.down {
-                NodeEditorInternalCallbacks.take-editor-focus();
-            }
-            if event.kind == PointerEventKind.down && event.button == PointerEventButton.left {
-                // Always initialize tracking state — even for inert presses —
-                // so `moved` and `up` never observe stale values.
-                shift-held = event.modifiers.shift;
-                is-dragging = false;
-                press-cancelled = false;
-                start-abs-x = screen-mouse-x;
-                start-abs-y = screen-mouse-y;
-                current-drag-offset-x = 0px;
-                current-drag-offset-y = 0px;
-                was-selected-on-press = selected;
-                selection-intent-sent = false;
-                forwarding-box-selection = NodeEditorGestureConfig.forces-box-selection(
-                    event.modifiers.control,
-                    event.modifiers.alt,
-                    event.modifiers.shift,
-                    event.modifiers.meta);
-
-                if forwarding-box-selection {
-                    BoxSelectionGesture.x = screen-mouse-x;
-                    BoxSelectionGesture.y = screen-mouse-y;
-                    BoxSelectionGesture.extends-selection = event.modifiers.shift;
-                    BoxSelectionGesture.state = BoxSelectionGestureState.started;
-                    BoxSelectionGesture.version += 1;
-                } else {
-                    // Only select immediately if shift is held (multi-select toggle)
-                    // or if node is not already selected. Otherwise defer selection
-                    // until release to distinguish click from drag.
-                    if shift-held || !selected {
-                        SelectionRequest.node-id = node-id;
-                        SelectionRequest.shift-held = shift-held;
-                        SelectionRequest.version += 1;
-                        selection-intent-sent = true;
-                    }
-                }
-            }
-            if event.kind == PointerEventKind.up && event.button == PointerEventButton.left {
-                if press-cancelled {
-                    press-cancelled = false;
-                } else if forwarding-box-selection {
-                    BoxSelectionGesture.x = screen-mouse-x;
-                    BoxSelectionGesture.y = screen-mouse-y;
-                    BoxSelectionGesture.state = BoxSelectionGestureState.complete;
-                    BoxSelectionGesture.version += 1;
-                } else {
-                    if is-dragging {
-                        // Transfer drag offset to persistent before ending drag
-                        root.persistent-offset-x += current-drag-offset-x;
-                        root.persistent-offset-y += current-drag-offset-y;
-                        // End drag using the tracked offset, not recalculated from mouse position
-                        NodeEditorInternalCallbacks.end-node-drag(node-id, current-drag-offset-x, current-drag-offset-y);
-                        // The host's projected model is authoritative even if it
-                        // rejected the move or snapped back to unchanged coordinates.
-                        root.persistent-offset-x = 0px;
-                        root.persistent-offset-y = 0px;
-                        is-dragging = false;
-                        current-drag-offset-x = 0px;
-                        current-drag-offset-y = 0px;
-                        // Reset global drag state
-                        DragState.is-dragging = false;
-                        DragState.dragged-node-id = 0;
-                        DragState.drag-offset-x = 0px;
-                        DragState.drag-offset-y = 0px;
-                    } else {
-                        // Click without drag - if we deferred selection, do it now
-                        if was-selected-on-press && !shift-held {
-                            SelectionRequest.node-id = node-id;
-                            SelectionRequest.shift-held = shift-held;
-                            SelectionRequest.version += 1;
-                        }
-                        // Double-click detection
-                        if root.dbl-click-armed {
-                            NodeEditorEvents.node-double-clicked(node-id);
-                            root.dbl-click-armed = false;
-                        } else {
-                            root.dbl-click-armed = true;
-                            dbl-click-timer.restart();
-                        }
-                    }
-                }
-                forwarding-box-selection = false;
-            }
-            if event.kind == PointerEventKind.cancel {
-                InteractionCancellation.version += 1;
-            }
+        drag-started(selected-at-press) => {
+            NodeEditorInternalCallbacks.start-node-drag(node-id, selected-at-press, world-x, world-y);
+            // Set global drag state for multi-node drag
+            DragState.is-dragging = true;
+            DragState.dragged-node-id = node-id;
         }
-
-        moved => {
-            if self.pressed && !press-cancelled && forwarding-box-selection {
-                BoxSelectionGesture.x = screen-mouse-x;
-                BoxSelectionGesture.y = screen-mouse-y;
-                BoxSelectionGesture.state = BoxSelectionGestureState.updating;
-                BoxSelectionGesture.version += 1;
-            } else if self.pressed && !press-cancelled {
-                if !is-dragging {
-                    if abs(screen-mouse-x - start-abs-x) > drag-threshold || abs(screen-mouse-y - start-abs-y) > drag-threshold {
-                        is-dragging = true;
-                        // Selected as of this press — either it already was, or
-                        // this press asked for it. Read from the latches, never
-                        // from the live flag: the host may not have applied the
-                        // intent yet, and re-reading would silently re-emit a
-                        // replacing click over a shift-toggle in flight.
-                        NodeEditorInternalCallbacks.start-node-drag(node-id, was-selected-on-press || selection-intent-sent, world-x, world-y);
-                        // Set global drag state for multi-node drag
-                        DragState.is-dragging = true;
-                        DragState.dragged-node-id = node-id;
-                    }
-                }
-                if is-dragging {
-                    current-drag-offset-x = (screen-mouse-x - start-abs-x) / ViewportState.zoom;
-                    current-drag-offset-y = (screen-mouse-y - start-abs-y) / ViewportState.zoom;
-                    
-                    NodeEditorInternalCallbacks.update-node-drag(current-drag-offset-x, current-drag-offset-y);
-                    // Update global drag offset for other selected nodes
-                    DragState.drag-offset-x = current-drag-offset-x;
-                    DragState.drag-offset-y = current-drag-offset-y;
-                    // Update geometry for live link updates
-                    root.report-geometry();
-                }
-            }
+        drag-moved(dx, dy) => {
+            NodeEditorInternalCallbacks.update-node-drag(dx, dy);
+            // Update global drag offset for other selected nodes
+            DragState.drag-offset-x = dx;
+            DragState.drag-offset-y = dy;
+            // Update geometry for live link updates
+            root.report-geometry();
+        }
+        drag-ended(dx, dy) => {
+            // Transfer drag offset to persistent before ending drag
+            root.persistent-offset-x += dx;
+            root.persistent-offset-y += dy;
+            NodeEditorInternalCallbacks.end-node-drag(node-id, dx, dy);
+            // The host's projected model is authoritative even if it
+            // rejected the move or snapped back to unchanged coordinates.
+            root.persistent-offset-x = 0px;
+            root.persistent-offset-y = 0px;
+            DragState.is-dragging = false;
+            DragState.dragged-node-id = 0;
+            DragState.drag-offset-x = 0px;
+            DragState.drag-offset-y = 0px;
+        }
+        item-double-clicked => {
+            NodeEditorEvents.node-double-clicked(node-id);
         }
     }
 }
@@ -1169,6 +1348,249 @@ export component Pin inherits Rectangle {
                 }
             } else if event.kind == PointerEventKind.cancel {
                 InteractionCancellation.version += 1;
+            }
+        }
+    }
+}
+
+/// An association of nodes rendered as a backing sheet behind its members.
+///
+/// Not a node: no pins, no links. Carries the sheet's drag gesture, selection
+/// intent and geometry reporting like `BaseNode`; membership is the
+/// `group-id` on the nodes. The rectangle is the host's authoritative bounds.
+/// `NodeEditor` renders a `GroupSheet` per row of `groups` below the links;
+/// a custom subclass among the editor's children renders above them. The
+/// movement and collapse contracts are in docs/component-reference.md.
+export component BaseGroup inherits Rectangle {
+    in property <int> group-id;
+    in property <bool> selected: false;
+    /// Collapsed groups show only their header band and hide their members.
+    in property <bool> collapsed: false;
+    in property <length> world-x;
+    in property <length> world-y;
+    /// Authoritative bounds from the host's group row.
+    in property <length> group-width: 200px;
+    in property <length> group-height: 150px;
+    /// Height of the band shown while collapsed, and of the input band when
+    /// `header-only-input` is set.
+    in property <length> header-height: GroupStyleDefaults.header-height;
+    /// Restrict pointer input to the header band so links and the canvas
+    /// inside the sheet stay clickable. Off by default: the whole sheet drags.
+    in property <bool> header-only-input: false;
+
+    // === Accessibility ===
+    accessible-role: groupbox;
+    accessible-label: "Group " + group-id;
+    accessible-description: root.collapsed ? (root.selected ? "selected, collapsed" : "collapsed") : (root.selected ? "selected" : "");
+
+    property <length> persistent-offset-x: 0px;
+    property <length> persistent-offset-y: 0px;
+    property <int> reported-group-id: 0;
+    property <int> projection-version: GeometryVersion.projection-version;
+    property <int> interaction-cancellation-watch: InteractionCancellation.version;
+
+    // A selected sheet follows any drag it did not start itself (a node drag or
+    // another sheet's); the dragged sheet uses its own live offset.
+    property <bool> follows-shared-drag: root.selected && DragState.is-dragging && group-id != DragState.dragged-group-id;
+    property <length> world-pos-x: world-x + persistent-offset-x + (root.follows-shared-drag ? DragState.drag-offset-x : drag-area.offset-x);
+    property <length> world-pos-y: world-y + persistent-offset-y + (root.follows-shared-drag ? DragState.drag-offset-y : drag-area.offset-y);
+    /// The rendered height: the header band while collapsed.
+    out property <length> displayed-height: root.collapsed ? root.header-height : root.group-height;
+    out property <length> screen-x: world-pos-x * ViewportState.zoom + ViewportState.pan-x;
+    out property <length> screen-y: world-pos-y * ViewportState.zoom + ViewportState.pan-y;
+    out property <bool> hovered: drag-area.has-hover;
+
+    x: world-pos-x;
+    y: world-pos-y;
+    width: group-width;
+    height: displayed-height;
+    background: transparent;
+    clip: false;
+
+    // The displayed rectangle is what marquee selection and the minimap see:
+    // a collapsed sheet contributes its band, not its expanded bounds.
+    function report-geometry() {
+        if reported-group-id != group-id {
+            if reported-group-id != 0 {
+                NodeEditorInternalCallbacks.remove-group(reported-group-id);
+            }
+            reported-group-id = group-id;
+        }
+        if group-id != 0 {
+            NodeEditorInternalCallbacks.report-group-rect(group-id, world-pos-x, world-pos-y, group-width, displayed-height);
+            GeometryVersion.request-version += 1;
+        }
+    }
+
+    init => {
+        root.report-geometry();
+    }
+    changed group-id => {
+        root.report-geometry();
+    }
+    changed projection-version => {
+        root.report-geometry();
+    }
+    changed interaction-cancellation-watch => {
+        drag-area.cancel-gesture();
+    }
+    changed world-x => {
+        // The row is authoritative after a commit: drop the gesture offset and
+        // publish the settled rectangle even when world-pos-x already had this
+        // value on the final live-drag frame.
+        if abs(persistent-offset-x) > 0.1px {
+            root.persistent-offset-x = 0px;
+        }
+        root.report-geometry();
+    }
+    changed world-y => {
+        if abs(persistent-offset-y) > 0.1px {
+            root.persistent-offset-y = 0px;
+        }
+        root.report-geometry();
+    }
+    changed group-width => {
+        root.report-geometry();
+    }
+    changed displayed-height => {
+        root.report-geometry();
+    }
+    changed world-pos-x => {
+        root.report-geometry();
+    }
+    changed world-pos-y => {
+        root.report-geometry();
+    }
+    changed collapsed => {
+        // Members re-evaluate their visibility against the host's rows.
+        GroupVisibility.version += 1;
+        // A visibility change mid-gesture invalidates the movement set.
+        if DragState.is-dragging {
+            InteractionCancellation.version += 1;
+        }
+    }
+
+    // === Drag Handling ===
+    // Sits below links and nodes in the editor, so member nodes and anything
+    // drawn over the sheet win the press. Hit testing is rectangular whatever
+    // a subclass draws.
+    drag-area := DragGesture {
+        x: 0;
+        y: 0;
+        width: root.group-width;
+        height: root.header-only-input && !root.collapsed ? root.header-height : root.displayed-height;
+        selected: root.selected;
+
+        selection-requested(shift) => {
+            GroupSelectionRequest.group-id = group-id;
+            GroupSelectionRequest.shift-held = shift;
+            GroupSelectionRequest.version += 1;
+        }
+        drag-started(_) => {
+            NodeEditorInternalCallbacks.start-group-drag(group-id, world-x, world-y);
+            DragState.is-dragging = true;
+            DragState.dragged-node-id = 0;
+            DragState.dragged-group-id = group-id;
+        }
+        drag-moved(dx, dy) => {
+            NodeEditorInternalCallbacks.update-group-drag(dx, dy);
+            // Members and other selected sheets follow through DragState.
+            DragState.drag-offset-x = dx;
+            DragState.drag-offset-y = dy;
+            root.report-geometry();
+        }
+        drag-ended(dx, dy) => {
+            root.persistent-offset-x += dx;
+            root.persistent-offset-y += dy;
+            NodeEditorInternalCallbacks.end-group-drag(group-id, dx, dy);
+            // The host's rows are authoritative even if it rejected or
+            // snapped the move.
+            root.persistent-offset-x = 0px;
+            root.persistent-offset-y = 0px;
+            DragState.is-dragging = false;
+            DragState.dragged-group-id = 0;
+            DragState.drag-offset-x = 0px;
+            DragState.drag-offset-y = 0px;
+        }
+        item-double-clicked => {
+            NodeEditorEvents.group-double-clicked(group-id);
+        }
+    }
+}
+
+/// The default backing sheet: a translucent rounded rectangle with a header
+/// band carrying the title and a collapse toggle. Restyle every sheet through
+/// `GroupStyleDefaults`, one through `GroupData.color`, or derive from
+/// `BaseGroup` for a different look altogether.
+export component GroupSheet inherits BaseGroup {
+    in property <string> title;
+    /// Sheet colour; a fully transparent colour falls back to the defaults.
+    in property <color> sheet-color: transparent;
+    /// Below this zoom the sheet is a flat box without header or title.
+    in property <float> lod-simplified-threshold: 0.25;
+
+    accessible-label: root.title != "" ? root.title : "Group " + root.group-id;
+
+    property <color> effective-color: root.sheet-color.alpha > 0 ? root.sheet-color : GroupStyleDefaults.sheet-color;
+    property <bool> simplified: ViewportState.zoom < root.lod-simplified-threshold;
+
+    Rectangle {
+        width: 100%;
+        height: 100%;
+        background: root.effective-color.with-alpha(root.simplified ? GroupStyleDefaults.header-opacity : GroupStyleDefaults.body-opacity);
+        border-radius: GroupStyleDefaults.border-radius;
+        border-width: root.selected ? GroupStyleDefaults.border-width-selected : GroupStyleDefaults.border-width;
+        border-color: root.selected ? GroupStyleDefaults.border-color-selected : root.effective-color.with-alpha(0.8);
+    }
+
+    if !root.simplified: Rectangle {
+        x: 0;
+        y: 0;
+        width: 100%;
+        height: root.header-height;
+        background: root.effective-color.with-alpha(GroupStyleDefaults.header-opacity);
+        border-top-left-radius: GroupStyleDefaults.border-radius;
+        border-top-right-radius: GroupStyleDefaults.border-radius;
+        border-bottom-left-radius: root.collapsed ? GroupStyleDefaults.border-radius : 0px;
+        border-bottom-right-radius: root.collapsed ? GroupStyleDefaults.border-radius : 0px;
+
+        Text {
+            x: 10px;
+            y: 0;
+            width: parent.width - root.header-height - 10px;
+            height: 100%;
+            vertical-alignment: center;
+            text: root.title;
+            color: GroupStyleDefaults.title-color;
+            font-size: GroupStyleDefaults.title-font-size;
+            font-weight: 600;
+            overflow: elide;
+        }
+
+        // Drawn after the drag area, so it wins the press (IR-9).
+        toggle := TouchArea {
+            x: parent.width - root.header-height;
+            y: 0;
+            width: root.header-height;
+            height: root.header-height;
+            accessible-role: button;
+            accessible-label: root.collapsed ? "expand group" : "collapse group";
+            pointer-event(event) => {
+                if event.kind == PointerEventKind.down {
+                    NodeEditorInternalCallbacks.take-editor-focus();
+                }
+            }
+            clicked => {
+                NodeEditorEvents.group-collapse-requested(root.group-id, !root.collapsed);
+            }
+            Text {
+                width: 100%;
+                height: 100%;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                text: root.collapsed ? "▸" : "▾";
+                color: GroupStyleDefaults.title-color;
+                font-size: GroupStyleDefaults.title-font-size + 2px;
             }
         }
     }

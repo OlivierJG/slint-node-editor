@@ -20,6 +20,13 @@ pub struct GeometryCache<N = SimpleNodeGeometry> {
     pub node_rects: HashMap<i32, N>,
     pub pin_positions: HashMap<i32, StoredPin>,
     non_hit_testable_pins: HashSet<i32>,
+    /// The visibility projection: nodes hidden by a collapsed group keep
+    /// their geometry but are excluded from marquee, pin and link picking,
+    /// and links with a hidden endpoint have no route.
+    hidden_nodes: HashSet<i32>,
+    /// Displayed rectangles of group sheets, keyed by group id. A collapsed
+    /// sheet reports its header band, so this is what a marquee sees.
+    pub group_rects: HashMap<i32, SimpleNodeGeometry>,
 }
 
 impl<N> Default for GeometryCache<N> {
@@ -28,6 +35,8 @@ impl<N> Default for GeometryCache<N> {
             node_rects: HashMap::new(),
             pin_positions: HashMap::new(),
             non_hit_testable_pins: HashSet::new(),
+            hidden_nodes: HashSet::new(),
+            group_rects: HashMap::new(),
         }
     }
 }
@@ -49,6 +58,7 @@ impl<N> GeometryCache<N> {
     /// those pins without deriving ownership from an application-specific ID.
     pub fn remove_node(&mut self, node_id: i32) -> Vec<i32> {
         self.node_rects.remove(&node_id);
+        self.hidden_nodes.remove(&node_id);
         let mut removed_pins: Vec<_> = self
             .pin_positions
             .iter()
@@ -61,11 +71,61 @@ impl<N> GeometryCache<N> {
         removed_pins
     }
 
-    /// Clear all projected node and pin geometry.
+    /// Clear all projected node, pin and group geometry.
     pub fn clear(&mut self) {
         self.node_rects.clear();
         self.pin_positions.clear();
         self.non_hit_testable_pins.clear();
+        self.hidden_nodes.clear();
+        self.group_rects.clear();
+    }
+
+    /// Mark a node hidden or visible. Hidden nodes keep their rectangle and
+    /// pins but take part in no hit testing, and links touching them have no
+    /// route. `BaseNode` reports this when a collapsed group hides it.
+    pub fn set_node_hidden(&mut self, node_id: i32, hidden: bool) {
+        if hidden {
+            self.hidden_nodes.insert(node_id);
+        } else {
+            self.hidden_nodes.remove(&node_id);
+        }
+    }
+
+    /// Whether a node is currently hidden.
+    pub fn is_node_hidden(&self, node_id: i32) -> bool {
+        self.hidden_nodes.contains(&node_id)
+    }
+
+    /// Whether either endpoint node is hidden. Runs once per link on the
+    /// route path, so the empty-set case costs one branch and no hashing.
+    fn touches_hidden(&self, a: i32, b: i32) -> bool {
+        !self.hidden_nodes.is_empty()
+            && (self.hidden_nodes.contains(&a) || self.hidden_nodes.contains(&b))
+    }
+
+    /// Update a group sheet's displayed rectangle (world coordinates).
+    pub fn update_group_rect(&mut self, id: i32, x: f32, y: f32, width: f32, height: f32) {
+        self.group_rects.insert(
+            id,
+            SimpleNodeGeometry {
+                id,
+                x,
+                y,
+                width,
+                height,
+            },
+        );
+    }
+
+    /// Remove a group sheet's rectangle.
+    pub fn remove_group(&mut self, group_id: i32) -> bool {
+        self.group_rects.remove(&group_id).is_some()
+    }
+
+    /// Groups whose displayed rectangle intersects the selection box, by the
+    /// same intersection rule as nodes.
+    pub fn groups_in_selection_box(&self, x: f32, y: f32, width: f32, height: f32) -> Vec<i32> {
+        nodes_in_selection_box(x, y, width, height, self.group_rects.values().copied())
     }
 }
 
@@ -75,9 +135,13 @@ where
 {
     /// Iterator over absolute pin positions for hit testing
     pub fn get_absolute_pins(&self) -> impl Iterator<Item = SimplePinGeometry> + '_ {
+        // Hot path (pointer moves): skip the hidden-node hash entirely for the
+        // common host with nothing collapsed.
+        let any_hidden = !self.hidden_nodes.is_empty();
         self.pin_positions
             .iter()
             .filter(|(pin_id, _)| !self.non_hit_testable_pins.contains(pin_id))
+            .filter(move |(_, pin)| !any_hidden || !self.hidden_nodes.contains(&pin.node_id))
             .filter_map(move |(&pin_id, pin_pos)| {
                 let rect = self.node_rects.get(&pin_pos.node_id)?.rect();
                 Some(SimplePinGeometry {
@@ -99,6 +163,9 @@ where
         links.filter_map(move |(id, start_pin, end_pin)| {
             let start_pos = self.pin_positions.get(&start_pin)?;
             let end_pos = self.pin_positions.get(&end_pin)?;
+            if self.touches_hidden(start_pos.node_id, end_pos.node_id) {
+                return None;
+            }
 
             let start_rect = self.node_rects.get(&start_pos.node_id)?.rect();
             let end_rect = self.node_rects.get(&end_pos.node_id)?.rect();
@@ -176,9 +243,18 @@ where
         )
     }
 
-    /// Compute nodes in selection box
+    /// Compute nodes in selection box. Hidden nodes are never hit.
     pub fn nodes_in_selection_box(&self, x: f32, y: f32, width: f32, height: f32) -> Vec<i32> {
-        nodes_in_selection_box(x, y, width, height, self.node_rects.values().copied())
+        nodes_in_selection_box(
+            x,
+            y,
+            width,
+            height,
+            self.node_rects
+                .values()
+                .filter(|node| !self.hidden_nodes.contains(&node.id()))
+                .copied(),
+        )
     }
 
     /// Compute links in selection box
@@ -197,7 +273,9 @@ where
     }
 
     /// Resolve absolute world-space positions for a link's start and end pins.
-    /// Returns `(start_x, start_y, end_x, end_y)` or `None` if pins/nodes are missing.
+    /// Returns `(start_x, start_y, end_x, end_y)`, or `None` if pins or nodes
+    /// are missing or either node is hidden — a link into a collapsed group
+    /// has no route and is not drawn.
     pub fn resolve_link_endpoints_world(
         &self,
         start_pin: i32,
@@ -205,6 +283,9 @@ where
     ) -> Option<(f32, f32, f32, f32)> {
         let start_pos = self.pin_positions.get(&start_pin)?;
         let end_pos = self.pin_positions.get(&end_pin)?;
+        if self.touches_hidden(start_pos.node_id, end_pos.node_id) {
+            return None;
+        }
 
         let start_rect = self.node_rects.get(&start_pos.node_id)?.rect();
         let end_rect = self.node_rects.get(&end_pos.node_id)?.rect();
@@ -464,6 +545,58 @@ mod tests {
 
         assert!(cache.node_rects.is_empty());
         assert!(cache.pin_positions.is_empty());
+    }
+
+    #[test]
+    fn hidden_node_keeps_geometry_but_leaves_every_hit_test_and_route() {
+        let mut cache = setup_test_cache();
+        cache.set_node_hidden(1, true);
+
+        assert!(cache.is_node_hidden(1));
+        assert!(cache.node_rects.contains_key(&1), "geometry kept");
+        assert!(cache.pin_positions.contains_key(&1001), "pins kept");
+        assert_eq!(cache.find_pin_at(100.0, 25.0, 10.0), 0, "pin not pickable");
+        assert!(!cache
+            .nodes_in_selection_box(0.0, 0.0, 50.0, 50.0)
+            .contains(&1));
+        assert!(cache.compute_link_path_world(1001, 2001, 50.0).is_none());
+        assert!(cache
+            .links_in_selection_box(90.0, 15.0, 20.0, 20.0, vec![(1, 1001, 2001)].into_iter())
+            .is_empty());
+
+        cache.set_node_hidden(1, false);
+        assert_eq!(cache.find_pin_at(100.0, 25.0, 10.0), 1001);
+        assert!(cache.compute_link_path_world(1001, 2001, 50.0).is_some());
+    }
+
+    #[test]
+    fn removing_or_clearing_a_node_drops_its_hidden_flag() {
+        let mut cache = setup_test_cache();
+        cache.set_node_hidden(1, true);
+        cache.remove_node(1);
+        assert!(!cache.is_node_hidden(1));
+
+        cache.set_node_hidden(2, true);
+        cache.update_group_rect(7, 0.0, 0.0, 10.0, 10.0);
+        cache.clear();
+        assert!(!cache.is_node_hidden(2));
+        assert!(cache.group_rects.is_empty());
+    }
+
+    #[test]
+    fn group_rects_are_marquee_selectable_by_intersection() {
+        let mut cache = setup_test_cache();
+        cache.update_group_rect(7, 500.0, 500.0, 100.0, 100.0);
+
+        assert_eq!(
+            cache.groups_in_selection_box(550.0, 550.0, 10.0, 10.0),
+            vec![7]
+        );
+        assert!(cache
+            .groups_in_selection_box(0.0, 0.0, 10.0, 10.0)
+            .is_empty());
+        assert!(cache.remove_group(7));
+        assert!(!cache.remove_group(7));
     }
 
     #[test]

@@ -29,7 +29,11 @@
 //! ```
 
 use crate::controller::NodeEditorController;
+use crate::groups::Dragged;
+use std::cell::RefCell;
 use std::rc::Rc;
+
+type GroupDragCommit = Rc<dyn Fn(i32, f32, f32)>;
 
 /// Setup helper that bundles NodeEditorController and automatic model updates.
 ///
@@ -49,6 +53,36 @@ where
 {
     controller: Rc<NodeEditorController>,
     on_drag_committed: Rc<F>,
+    /// Set by [`Self::on_group_drag_committed`] (or `wire_groups!`). A host
+    /// without groups never sees a group drag, so this is optional.
+    on_group_drag_committed: Rc<RefCell<Option<GroupDragCommit>>>,
+}
+
+impl NodeEditorSetup<Box<dyn Fn(i32, f32, f32)>> {
+    /// Create a setup helper with one drag commit for both gestures.
+    ///
+    /// The closure receives what was dragged ([`Dragged::Node`] or
+    /// [`Dragged::Group`]) and the delta, once per finished drag. With
+    /// [`GroupLogic::commit_drag`](crate::groups::GroupLogic::commit_drag) it
+    /// is the whole movement policy for a host with groups:
+    ///
+    /// ```text
+    /// let setup = NodeEditorSetup::with_drag_commit(move |dragged, dx, dy| {
+    ///     GroupLogic::commit_drag(&nodes, &groups, dragged, dx, dy)
+    /// });
+    /// ```
+    pub fn with_drag_commit(on_committed: impl Fn(Dragged, f32, f32) + 'static) -> Self {
+        let on_committed = Rc::new(on_committed);
+        let setup = Self::new({
+            let on_committed = on_committed.clone();
+            Box::new(move |node_id, dx, dy| on_committed(Dragged::Node(node_id), dx, dy))
+                as Box<dyn Fn(i32, f32, f32)>
+        });
+        setup.on_group_drag_committed(move |group_id, dx, dy| {
+            on_committed(Dragged::Group(group_id), dx, dy)
+        });
+        setup
+    }
 }
 
 impl<F> NodeEditorSetup<F>
@@ -64,7 +98,15 @@ where
         Self {
             controller: Rc::new(NodeEditorController::new()),
             on_drag_committed: Rc::new(on_drag_committed),
+            on_group_drag_committed: Rc::new(RefCell::new(None)),
         }
+    }
+
+    /// Install the commit for a finished group sheet drag, when the node and
+    /// group commits are separate closures. [`Self::with_drag_commit`] is the
+    /// usual way to get both from one rule.
+    pub fn on_group_drag_committed(&self, on_committed: impl Fn(i32, f32, f32) + 'static) {
+        *self.on_group_drag_committed.borrow_mut() = Some(Rc::new(on_committed));
     }
 
     /// Get the underlying controller for advanced operations.
@@ -140,6 +182,54 @@ where
         move |node_id, delta_x, delta_y| {
             ctrl.handle_node_drag_finished();
             on_committed(node_id, delta_x, delta_y);
+        }
+    }
+
+    /// Callback for `NodeEditorInternalCallbacks.on_report_group_rect`.
+    pub fn report_group_rect(&self) -> impl Fn(i32, f32, f32, f32, f32) + 'static {
+        let ctrl = self.controller.clone();
+        move |id, x, y, w, h| {
+            ctrl.handle_group_rect(id, x, y, w, h);
+        }
+    }
+
+    /// Callback for retiring a group sheet's projected rectangle.
+    pub fn remove_group(&self) -> impl Fn(i32) + 'static {
+        let ctrl = self.controller.clone();
+        move |group_id| {
+            ctrl.remove_group(group_id);
+        }
+    }
+
+    /// Callback for `NodeEditorInternalCallbacks.on_set_node_hidden`.
+    pub fn set_node_hidden(&self) -> impl Fn(i32, bool) + 'static {
+        let ctrl = self.controller.clone();
+        move |node_id, hidden| {
+            ctrl.set_node_hidden(node_id, hidden);
+        }
+    }
+
+    /// Callback for `NodeEditorInternalCallbacks.on_start_group_drag`.
+    pub fn start_group_drag(&self) -> impl Fn(i32, f32, f32) + 'static {
+        let ctrl = self.controller.clone();
+        move |group_id, _world_x, _world_y| {
+            ctrl.handle_group_drag_started(group_id);
+        }
+    }
+
+    /// Callback for `NodeEditorInternalCallbacks.on_end_group_drag`.
+    ///
+    /// Calls the group drag commit from [`Self::with_drag_commit`] or
+    /// [`Self::on_group_drag_committed`], if any, once per finished sheet drag.
+    pub fn end_group_drag(&self) -> impl Fn(i32, f32, f32) + 'static {
+        let ctrl = self.controller.clone();
+        let on_committed = self.on_group_drag_committed.clone();
+        move |group_id, delta_x, delta_y| {
+            ctrl.handle_node_drag_finished();
+            let commit = on_committed.borrow().clone();
+            if let Some(commit) = commit {
+                commit(group_id, delta_x, delta_y);
+            }
         }
     }
 }

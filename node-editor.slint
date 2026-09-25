@@ -34,6 +34,8 @@ import {
     LinkCreationState,
     LinkCreation,
     SelectionRequest,
+    GroupSelectionRequest,
+    GroupVisibility,
     HoverState,
     NodeEditorEvents,
     NodeEditorComputations,
@@ -49,21 +51,26 @@ import {
     LinkPath,
     LinkStatus,
     LinkStatusColors,
+    GroupData,
+    GroupStyleDefaults,
     Minimap,
     Link,
     BaseNode,
+    BaseGroup,
+    GroupSheet,
     Pin,
 } from "node-editor-building-blocks.slint";
 // Globals used by both compiled library functions and consumer-instantiated
 // components must be exported by the module. Otherwise Slint gives the consumer
 // a separate instance and lifecycle notifications never reach its components.
-export { PinTypes, ViewportState, DragState, GeometryVersion, NodeEditorInternalCallbacks, LinkCreationState, LinkCreation, SelectionRequest, HoverState, NodeEditorEvents, NodeEditorComputations, NodeEditorGestureConfig, BoxSelectionGestureState, BoxSelectionGesture, InteractionCancellation, NodeStyleDefaults, BoxSelectionModifier, MinimapNode, MinimapPosition, LinkData, LinkPath, LinkStatus, LinkStatusColors, Minimap, Link, BaseNode, Pin }
+export { PinTypes, ViewportState, DragState, GeometryVersion, NodeEditorInternalCallbacks, LinkCreationState, LinkCreation, SelectionRequest, GroupSelectionRequest, GroupVisibility, HoverState, NodeEditorEvents, NodeEditorComputations, NodeEditorGestureConfig, BoxSelectionGestureState, BoxSelectionGesture, InteractionCancellation, NodeStyleDefaults, BoxSelectionModifier, MinimapNode, MinimapPosition, LinkData, LinkPath, LinkStatus, LinkStatusColors, GroupData, GroupStyleDefaults, Minimap, Link, BaseNode, BaseGroup, GroupSheet, Pin }
 
 /// Pure Slint node editor composite component.
 ///
 /// Provides:
 /// - Layer 1: Grid background with pan/zoom input handling
-/// - Layer 2: User children (nodes, links via @children)
+/// - Layer 2: World content, scaled: group sheets, then links, then the
+///   user's children (nodes)
 /// - Layer 3: Selection box and link preview overlays
 ///
 /// Computation-heavy operations are delegated to the application via callbacks.
@@ -168,6 +175,12 @@ export component NodeEditor inherits FocusScope {
     // === Link data (set by application) ===
     /// Logical link data - application provides this
     in property <[LinkData]> links: [];
+
+    // === Group data (set by application) ===
+    /// One row per group. The editor renders a `GroupSheet` for each below
+    /// the links; membership is the `group-id` on the application's node rows.
+    /// Leave this empty and instantiate `BaseGroup` children for a custom look.
+    in property <[GroupData]> groups: [];
 
     // === Selection state ===
     // The editor holds NO selection state: `selected` is per-row data on the
@@ -348,6 +361,10 @@ export component NodeEditor inherits FocusScope {
     /// A link was clicked. Same semantics as `node-selected`.
     callback select-link(/* link-id */ int, /* shift-held */ bool);
 
+    /// A group sheet was clicked. Same semantics as `node-selected`; a plain
+    /// click is exclusive across nodes, links and groups.
+    callback group-selected(/* group-id */ int, /* shift-held */ bool);
+
     /// The background was clicked: the whole selection should be dropped.
     callback selection-cleared();
 
@@ -471,6 +488,11 @@ export component NodeEditor inherits FocusScope {
         root.node-selected(node-id, shift-held);
     }
 
+    /// Report a click on a group sheet.
+    public function select-group(group-id: int, shift-held: bool) {
+        root.group-selected(group-id, shift-held);
+    }
+
     /// Report that the whole selection should be dropped.
     public function clear-selection() {
         root.selection-cleared();
@@ -521,6 +543,7 @@ export component NodeEditor inherits FocusScope {
         LinkCreation.start-pin-id = 0;
         DragState.is-dragging = false;
         DragState.dragged-node-id = 0;
+        DragState.dragged-group-id = 0;
         DragState.drag-offset-x = 0px;
         DragState.drag-offset-y = 0px;
         BoxSelectionGesture.state = BoxSelectionGestureState.idle;
@@ -607,6 +630,12 @@ export component NodeEditor inherits FocusScope {
     property <int> selection-request-watch: SelectionRequest.version;
     changed selection-request-watch => {
         root.select-node(SelectionRequest.node-id, SelectionRequest.shift-held);
+    }
+
+    // Watch GroupSelectionRequest global for sheet-initiated selection
+    property <int> group-selection-request-watch: GroupSelectionRequest.version;
+    changed group-selection-request-watch => {
+        root.select-group(GroupSelectionRequest.group-id, GroupSelectionRequest.shift-held);
     }
 
     /// Call this after initial geometry has been reported to force link path recomputation.
@@ -839,6 +868,21 @@ export component NodeEditor inherits FocusScope {
         transform-scale: root.zoom;
         background: transparent;
         clip: false;
+
+        // Group sheets first: below the links, so internal links stay visible,
+        // and below the nodes, so members win the press.
+        for group in root.groups: GroupSheet {
+            group-id: group.id;
+            title: group.title;
+            world-x: group.x;
+            world-y: group.y;
+            group-width: group.width;
+            group-height: group.height;
+            sheet-color: group.color;
+            selected: group.selected;
+            collapsed: group.collapsed;
+            lod-simplified-threshold: root.lod-simplified-threshold;
+        }
 
         // Render links from `links` property
         for link in root.links: Link {

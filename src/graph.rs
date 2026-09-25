@@ -158,6 +158,9 @@ impl LinkModel for SimpleLink {
 /// the rendering does. The row already carries the flag (the editor renders it
 /// from there); asking a separate set instead is what lets a drag's visuals and
 /// its commit disagree.
+///
+/// Rows that belong to groups also implement
+/// [`GroupMember`](crate::groups::GroupMember), which adds the membership.
 pub trait MovableNode: Clone + 'static {
     fn id(&self) -> i32;
     fn x(&self) -> f32;
@@ -298,7 +301,11 @@ impl GraphLogic {
     ///     |n| n.id,
     /// ).unwrap();
     /// ```
-    pub fn find_node_by_id<T, F>(model: &VecModel<T>, id: i32, predicate: F) -> Option<(usize, T)>
+    pub fn find_node_by_id<T, F>(
+        model: &impl Model<Data = T>,
+        id: i32,
+        predicate: F,
+    ) -> Option<(usize, T)>
     where
         T: Clone + 'static,
         F: Fn(&T) -> i32,
