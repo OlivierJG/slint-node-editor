@@ -1,0 +1,231 @@
+// Node groups: backing sheets behind associated nodes.
+//
+// The editor renders a GroupSheet for every row of `groups`, below the links
+// and the nodes. Membership is the `group-id` on each node row; the sheet
+// drags its members, and collapsing it hides them.
+
+import { Button } from "std-widgets.slint";
+import {
+    NodeEditor,
+    BaseNode,
+    Pin,
+    PinTypes,
+    ViewportState,
+    LinkData,
+    GroupData,
+    GroupStyleDefaults,
+    MinimapNode,
+    NodeEditorEvents,
+    NodeEditorInternalCallbacks,
+    NodeEditorComputations,
+} from "@nodeeditor";
+
+export struct NodeData {
+    id: int,
+    title: string,
+    x: float,
+    y: float,
+    /// Projected from the application's selection (the editor holds none).
+    selected: bool,
+    /// The group this node belongs to, or 0. Projected like `selected`.
+    group-id: int,
+    color: color,
+}
+
+// Re-export for Rust
+export { LinkData, GroupData, GroupStyleDefaults, MinimapNode, NodeEditorEvents, NodeEditorInternalCallbacks, NodeEditorComputations }
+
+component SimpleNode inherits BaseNode {
+    in property <string> title: "Node";
+    in property <color> accent: #5a8ad0;
+    accessible-label: title;
+    node-width: 180px;
+    node-height: 64px;
+
+    Rectangle {
+        width: 100%;
+        height: 100%;
+        background: root.selected ? #3d4f6e : #2a2a2e;
+        border-radius: 6px;
+        border-width: root.selected ? 2px : 1px;
+        border-color: root.selected ? #ffffff : root.accent;
+
+        Rectangle {
+            x: 0;
+            y: 0;
+            width: 6px;
+            height: 100%;
+            background: root.accent;
+            border-top-left-radius: 6px;
+            border-bottom-left-radius: 6px;
+        }
+
+        Text {
+            x: 16px;
+            width: parent.width - 32px;
+            height: 100%;
+            vertical-alignment: center;
+            text: root.title;
+            color: white;
+            font-size: 14px;
+            overflow: elide;
+        }
+    }
+
+    Pin {
+        x: 0px - self.width / 2;
+        y: root.node-height / 2 - self.height / 2;
+        pin-id: root.node-id * 2;
+        node-id: root.node-id;
+        pin-type: PinTypes.input;
+        node-screen-x: root.screen-x;
+        node-screen-y: root.screen-y;
+    }
+
+    Pin {
+        x: root.node-width - self.width / 2;
+        y: root.node-height / 2 - self.height / 2;
+        pin-id: root.node-id * 2 + 1;
+        node-id: root.node-id;
+        pin-type: PinTypes.output;
+        node-screen-x: root.screen-x;
+        node-screen-y: root.screen-y;
+    }
+}
+
+component ToolButton inherits Rectangle {
+    in property <string> text;
+    in property <string> shortcut;
+    callback clicked();
+    height: 30px;
+    width: layout.preferred-width + 20px;
+    border-radius: 5px;
+    background: touch.pressed ? #4a5a7a : touch.has-hover ? #3a4358 : #2e3442;
+    layout := HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        spacing: 8px;
+        alignment: center;
+        Text { text: root.text; color: white; font-size: 13px; vertical-alignment: center; }
+        Text { text: root.shortcut; color: #9aa4b8; font-size: 11px; vertical-alignment: center; }
+    }
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+export component MainWindow inherits Window {
+    title: "Node Groups";
+    preferred-width: 1100px;
+    preferred-height: 720px;
+    background: #1a1a1a;
+
+    in property <[NodeData]> nodes;
+    in property <[LinkData]> links <=> editor.links;
+    in property <[GroupData]> groups <=> editor.groups;
+    in property <[MinimapNode]> minimap-nodes <=> editor.minimap-nodes;
+    in-out property <string> grid_commands <=> editor.grid-commands;
+    in-out property <length> pan-x <=> editor.pan-x;
+    in-out property <length> pan-y <=> editor.pan-y;
+    in-out property <float> zoom <=> editor.zoom;
+    in-out property <length> graph-min-x <=> editor.graph-min-x;
+    in-out property <length> graph-min-y <=> editor.graph-min-y;
+    in-out property <length> graph-max-x <=> editor.graph-max-x;
+    in-out property <length> graph-max-y <=> editor.graph-max-y;
+    in property <string> status: "";
+
+    // Size for grid generation (used by Rust)
+    out property <float> width_: editor.width / 1px;
+    out property <float> height_: editor.height / 1px;
+
+    // Selection intents — the application owns the selection
+    callback node-selected <=> editor.node-selected;
+    callback select-link <=> editor.select-link;
+    callback group-selected <=> editor.group-selected;
+    callback selection-cleared <=> editor.selection-cleared;
+    callback box-selection-committed <=> editor.box-selection-committed;
+    callback link-requested <=> editor.link-requested;
+    callback compute-link-at <=> editor.compute-link-at;
+
+    // Group commands
+    callback group-selection();
+    callback ungroup-selection();
+    callback leave-group();
+    callback toggle-collapse();
+    callback fit-groups();
+    callback delete-selection();
+
+    public function focus-editor() {
+        editor.focus();
+    }
+
+    VerticalLayout {
+        HorizontalLayout {
+            height: 46px;
+            padding: 8px;
+            spacing: 6px;
+            ToolButton { text: "Group selection"; shortcut: "G"; clicked => { root.group-selection(); } }
+            ToolButton { text: "Ungroup"; shortcut: "U"; clicked => { root.ungroup-selection(); } }
+            ToolButton { text: "Leave group"; shortcut: "L"; clicked => { root.leave-group(); } }
+            ToolButton { text: "Collapse / expand"; shortcut: "C"; clicked => { root.toggle-collapse(); } }
+            ToolButton { text: "Fit to members"; shortcut: "F"; clicked => { root.fit-groups(); } }
+            ToolButton { text: "Delete"; shortcut: "⌫"; clicked => { root.delete-selection(); } }
+            Rectangle { }
+            Text { text: root.status; color: #9aa4b8; font-size: 12px; vertical-alignment: center; }
+        }
+
+        // Embedders own the keymap: a parent FocusScope sees what the editor rejects.
+        FocusScope {
+            key-pressed(event) => {
+                if event.text == "g" || event.text == "G" { root.group-selection(); return accept; }
+                if event.text == "u" || event.text == "U" { root.ungroup-selection(); return accept; }
+                if event.text == "l" || event.text == "L" { root.leave-group(); return accept; }
+                if event.text == "c" || event.text == "C" { root.toggle-collapse(); return accept; }
+                if event.text == "f" || event.text == "F" { root.fit-groups(); return accept; }
+                if event.text == Key.Delete || event.text == Key.Backspace { root.delete-selection(); return accept; }
+                if event.text == Key.Escape && editor.is-creating-link { editor.cancel-link-creation(); return accept; }
+                return reject;
+            }
+
+            editor := NodeEditor {
+                width: 100%;
+                height: 100%;
+                has-link-selection: true;
+                minimap-enabled: true;
+                min-zoom: 0.2;
+                max-zoom: 3.0;
+
+                for data in root.nodes: SimpleNode {
+                    node-id: data.id;
+                    title: data.title;
+                    accent: data.color;
+                    world-x: data.x * 1px;
+                    world-y: data.y * 1px;
+                    selected: data.selected;
+                    group-id: data.group-id;
+                }
+            }
+        }
+    }
+
+    Rectangle {
+        x: 12px;
+        y: root.height - self.height - 12px;
+        width: 300px;
+        height: 178px;
+        background: #00000090;
+        border-radius: 8px;
+        VerticalLayout {
+            padding: 12px;
+            spacing: 4px;
+            Text { text: "Groups"; color: #fff; font-size: 14px; font-weight: 600; }
+            Text { text: "Select nodes, then G: group them under a sheet"; color: #ccc; font-size: 12px; }
+            Text { text: "Drag the sheet: its members move with it"; color: #ccc; font-size: 12px; }
+            Text { text: "Drag a node out, then F: the sheet refits"; color: #ccc; font-size: 12px; }
+            Text { text: "▾ on the sheet or C: collapse / expand"; color: #ccc; font-size: 12px; }
+            Text { text: "L: take selected nodes out of their group"; color: #ccc; font-size: 12px; }
+            Text { text: "Shift+click: extend across nodes and sheets"; color: #ccc; font-size: 12px; }
+            Text { text: "Ctrl+drag: marquee   Middle drag: pan   Scroll: zoom"; color: #ccc; font-size: 12px; }
+        }
+    }
+}

@@ -52,6 +52,7 @@ members = [
     "examples/sugiyama",
     "examples/sugiyama-stress-test",
     "examples/edge-fade",
+    "examples/groups",
 ]
 
 [workspace.dependencies]

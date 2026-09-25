@@ -1445,6 +1445,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b40ca9252762c466af32d0b1002e91e4e1bc5398f77455e55474deb466355ff5"
 
 [[package]]
+name = "groups"
+version = "1.0.0"
+dependencies = [
+ "i-slint-backend-testing",
+ "slint",
+ "slint-build",
+ "slint-node-editor",
+]
+
+[[package]]
 name = "half"
 version = "2.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

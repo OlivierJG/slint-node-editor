@@ -91,6 +91,7 @@ Run any example with `cargo run -p <name>` from the repository root.
 | [pin-compatibility](examples/pin-compatibility) | Compatibility checks and connection feedback |
 | [zoom-stress-test](examples/zoom-stress-test) | Zoom-dependent node detail and widget scaling |
 | [edge-fade](examples/edge-fade) | Viewport edge styling |
+| [groups](examples/groups) | Node groups: backing sheets that move, collapse and refit around their members |
 | [sugiyama](examples/sugiyama) | Automatic graph layout |
 | [sugiyama-stress-test](examples/sugiyama-stress-test) | Layout with larger graphs |
 
