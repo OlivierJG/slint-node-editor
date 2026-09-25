@@ -29,6 +29,9 @@ cargo run -p pin-compatibility
 # Build and run the edge fade demo
 cargo run -p edge-fade
 
+# Build and run the node groups demo
+cargo run -p groups
+
 # Build and run the zoom stress test (LOD system demo)
 cargo run -p zoom-stress-test
 
@@ -42,7 +45,9 @@ cargo check --workspace
 |------|---------|
 | `examples/advanced/src/main.rs` | Application entry point (Full Example) |
 | `src/lib.rs` | Library entry point (Rust) |
-| `node-editor.slint` | Generic Slint components (NodeEditor, Pin, Link, Minimap) |
+| `node-editor.slint` | Generic Slint components (NodeEditor, Pin, Link, Minimap, BaseGroup) |
+| `src/groups.rs` | Node groups: membership, movement rule, collapse, bounds |
+| `examples/groups/` | Node groups demo: create, drag, collapse, refit, dissolve |
 | `examples/advanced/ui/pin_encoding.slint` | Application-specific pin ID encoding scheme |
 | `examples/advanced/ui/ui.slint` | Application-specific UI (Node component, data structs, main window) |
 | `examples/advanced/ui/filter_node.slint` | Complex node example with multiple widgets |
@@ -51,9 +56,11 @@ cargo check --workspace
 ## Architecture
 
 **Three-layer rendering** (back to front):
-1. **Background** - Grid and link paths (SVG-based)
-2. **Children** - Node components (Slint components)
-3. **Overlay** - Selection box, link preview, input handling
+1. **Background** - Grid (screen space) and pan/zoom/marquee input handling
+2. **World content** (scaled by zoom) - group sheets, then link paths, then
+   the consumer's `@children` (node components). Links are *not* in the
+   background layer: they sit in the world container just below the nodes.
+3. **Overlay** - Selection box, link preview, minimap
 
 **Coordinate systems**:
 - **World coordinates**: Graph-space positions (`world_x`, `world_y` on nodes)
@@ -104,6 +111,17 @@ VecModel<LinkData>       // Logical connections
   that node plus whatever the rows show as selected (`GraphLogic::commit_drag`).
   Reading `selected` off the row is deliberate: it is the same data the editor
   renders, so a drag's visuals and its commit cannot disagree.
+
+**Groups**: model data like selection. Membership is `group_id` on the node
+rows (`GroupMember`); each group is a `GroupData` row (authoritative bounds,
+`collapsed`, `selected`). One movement rule (`GroupLogic::moves`) for node and
+sheet drags, installed once with `NodeEditorSetup::with_drag_commit`; the live
+preview asks the host the same question through
+`NodeEditorComputations.group-in-drag`. `BaseNode` and `BaseGroup` share the
+`DragGesture` component for press, click, drag and marquee forwarding. Collapse is a visibility projection:
+members hide, report `set-node-hidden`, and the cache excludes them from every
+hit test; links with a hidden endpoint are not drawn. Hosts call
+`NodeEditorInternalCallbacks.remove-group` when removing a group row.
 
 ## Library Helpers
 

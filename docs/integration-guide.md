@@ -257,6 +257,27 @@ no status override. Link box selection uses endpoint inclusion: either endpoint
 inside or on the box selects the link; a crossing curve whose endpoints are
 both outside is omitted.
 
+### Groups
+
+A group is model data like selection: membership is the `group_id` on each
+node row (0 for none), and each group is a `GroupData` row with authoritative
+bounds, `collapsed` and `selected`. Bind both into the UI — `group-id` on your
+`BaseNode`, the group rows on `NodeEditor.groups`, and `group-selected` next to
+the other selection callbacks — then build the setup with
+`NodeEditorSetup::with_drag_commit` around `GroupLogic::commit_drag`, so a node
+drag and a sheet drag move the same set, and wire with the five-argument
+`wire_selection!` arm and `wire_groups!`.
+
+The library owns the sheet's gesture, the movement rule, the collapse
+visibility projection and its cancellation. The host owns what a group means:
+creating one from a selection, fitting or resizing its bounds, adding and
+removing members, dissolving it, and what Delete does. `GroupLogic` holds the
+building blocks; the `groups` example composes them. Call
+`NodeEditorInternalCallbacks.remove-group(id)` when removing a group row.
+
+Links into a collapsed group are not drawn (their route has no visible
+endpoint); anchoring them on the collapsed sheet is a later extension.
+
 ### Replacing and seeding a graph
 
 When replacing the whole graph, install the new models and invoke

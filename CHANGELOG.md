@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Add node groups: `BaseGroup` and the default `GroupSheet`, rendered below the
+  links for every row of `NodeEditor.groups`. Membership is `group-id` on the
+  node rows; a sheet drags its members, and collapsing hides them through a
+  visibility projection that also excludes them from marquee, pin and link
+  picking. Selection gains `group-selected` and a five-argument
+  `wire_selection!` arm; `wire_groups!` installs the host answers for the live
+  drag preview and collapse. Rust: the `groups` module (`GroupMember`,
+  `GroupModel`, `GroupLogic`, `Dragged`, `Bounds`), `GeometryCache` hidden
+  nodes and group rectangles, and `NodeEditorSetup::with_drag_commit` for one
+  drag commit across both gestures. `GraphLogic::find_node_by_id` now accepts
+  any `Model`. New `groups` example.
 - Add `NodeEditorComputations.viewport-resized(width, height)` so hosts can
   track editor dimensions independently of grid updates, preserving the
   existing `viewport-changed` signature. Batched changes emit one deferred
