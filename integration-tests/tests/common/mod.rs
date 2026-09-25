@@ -16,6 +16,8 @@ pub struct CallbackTracker {
     pub node_drag_started: Rc<RefCell<Vec<i32>>>,
     /// (delta_x, delta_y)
     pub node_drag_ended: Rc<RefCell<Vec<(f32, f32)>>>,
+    /// (group_id, delta_x, delta_y)
+    pub group_drag_ended: Rc<RefCell<Vec<(i32, f32, f32)>>>,
     /// (start_pin, end_pin)
     pub link_requested: Rc<RefCell<Vec<(i32, i32)>>>,
     /// Count of link_cancelled calls

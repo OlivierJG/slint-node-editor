@@ -11,8 +11,8 @@ use slint::{
     Color, ComponentHandle, LogicalPosition, Model, ModelRc, SharedString, VecModel,
 };
 use slint_node_editor::{
-    selection, wire_node_editor, wire_selection, GraphLogic, MovableNode, NodeEditorController,
-    NodeEditorSetup,
+    selection, wire_groups, wire_node_editor, wire_selection, GroupLogic, GroupMember, MovableNode,
+    NodeEditorController, NodeEditorSetup,
 };
 use std::rc::Rc;
 
@@ -21,7 +21,9 @@ slint::include_modules!();
 
 // Each integration-test target uses a different subset of these shared types.
 #[allow(unused_imports)]
-pub use slint_node_editor::{BoxSelectionModifier, LinkCreationState, LinkData, LinkPath};
+pub use slint_node_editor::{
+    BoxSelectionModifier, GroupData, LinkCreationState, LinkData, LinkPath,
+};
 
 impl MovableNode for NodeData {
     fn id(&self) -> i32 {
@@ -41,6 +43,15 @@ impl MovableNode for NodeData {
     }
     fn set_y(&mut self, y: f32) {
         self.y = y;
+    }
+}
+
+impl GroupMember for NodeData {
+    fn group_id(&self) -> i32 {
+        self.group_id
+    }
+    fn set_group_id(&mut self, group_id: i32) {
+        self.group_id = group_id;
     }
 }
 
@@ -69,6 +80,7 @@ pub struct MinimalTestHarness {
     pub ctrl: Rc<NodeEditorController>,
     pub nodes: Rc<VecModel<NodeData>>,
     pub links: Rc<VecModel<LinkData>>,
+    pub groups: Rc<VecModel<GroupData>>,
     pub tracker: CallbackTracker,
 }
 
@@ -83,6 +95,7 @@ impl MinimalTestHarness {
                     x: 100.0,
                     y: 100.0,
                     selected: false,
+                    group_id: 0,
                 },
                 NodeData {
                     id: 2,
@@ -90,6 +103,7 @@ impl MinimalTestHarness {
                     x: 400.0,
                     y: 200.0,
                     selected: false,
+                    group_id: 0,
                 },
             ],
             vec![LinkData {
@@ -106,6 +120,15 @@ impl MinimalTestHarness {
 
     /// Create a new test harness with custom nodes and links.
     pub fn with_nodes_and_links(nodes: Vec<NodeData>, links: Vec<LinkData>) -> Self {
+        Self::with_nodes_links_and_groups(nodes, links, Vec::new())
+    }
+
+    /// Create a new test harness with custom nodes, links and groups.
+    pub fn with_nodes_links_and_groups(
+        nodes: Vec<NodeData>,
+        links: Vec<LinkData>,
+        groups: Vec<GroupData>,
+    ) -> Self {
         init_testing_backend();
         let window = MainWindow::new().unwrap();
         let tracker = CallbackTracker::new();
@@ -119,15 +142,22 @@ impl MinimalTestHarness {
         let links = Rc::new(VecModel::from(links));
         window.set_links(ModelRc::from(links.clone()));
 
-        // Wire all standard callbacks via the macro
-        let setup = NodeEditorSetup::new({
+        // Set up groups
+        let groups = Rc::new(VecModel::from(groups));
+        window.set_groups(ModelRc::from(groups.clone()));
+
+        // Wire all standard callbacks via the macros. One movement rule for
+        // both gestures: a node drag and a sheet drag commit through one call.
+        let setup = NodeEditorSetup::with_drag_commit({
             let nodes = nodes.clone();
+            let groups = groups.clone();
             move |dragged, delta_x, delta_y| {
-                GraphLogic::commit_drag(&nodes, dragged, delta_x, delta_y);
+                GroupLogic::commit_drag(&nodes, &groups, dragged, delta_x, delta_y);
             }
         });
         wire_node_editor!(window, setup);
-        wire_selection!(window, setup, nodes, links);
+        wire_selection!(window, setup, nodes, links, groups);
+        wire_groups!(window, groups, nodes);
 
         // Layer tracking on top of the macro-wired callbacks.
         // We re-wire globals callbacks to add tracking, forwarding to the controller.
@@ -205,6 +235,20 @@ impl MinimalTestHarness {
                 }
             });
 
+        window
+            .global::<NodeEditorInternalCallbacks>()
+            .on_end_group_drag({
+                let setup_end = setup.end_group_drag();
+                let tracker = tracker.clone();
+                move |group_id, delta_x, delta_y| {
+                    setup_end(group_id, delta_x, delta_y);
+                    tracker
+                        .group_drag_ended
+                        .borrow_mut()
+                        .push((group_id, delta_x, delta_y));
+                }
+            });
+
         let ctrl = setup.controller().clone();
 
         // Link requested callback
@@ -264,8 +308,29 @@ impl MinimalTestHarness {
             ctrl,
             nodes,
             links,
+            groups,
             tracker,
         }
+    }
+
+    /// The current group selection, read from the rows.
+    pub fn selected_group_ids(&self) -> Vec<i32> {
+        selection::selected_rows(&*self.groups, |g| g.id, |g| g.selected)
+    }
+
+    /// Get group data by ID.
+    pub fn group_data(&self, group_id: i32) -> Option<GroupData> {
+        GroupLogic::find_group(&*self.groups, group_id).map(|(_, g)| g)
+    }
+
+    /// A screen point `offset` inside a sheet's displayed rectangle, measured
+    /// from its top-left corner. Sheets sit below nodes, so pick an offset
+    /// that lands on the sheet's padding rather than on a member.
+    pub fn group_point(&self, group_id: i32, offset: (f32, f32)) -> Option<(f32, f32)> {
+        let cache = self.ctrl.cache();
+        let cache = cache.borrow();
+        let rect = cache.group_rects.get(&group_id)?;
+        Some(self.world_to_screen((rect.x + offset.0, rect.y + offset.1)))
     }
 
     /// The current node selection, read where it actually lives: the rows.

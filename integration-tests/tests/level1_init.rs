@@ -77,6 +77,7 @@ fn test_custom_nodes_and_links() {
             x: 50.0,
             y: 75.0,
             selected: false,
+            group_id: 0,
         }],
         vec![],
     );

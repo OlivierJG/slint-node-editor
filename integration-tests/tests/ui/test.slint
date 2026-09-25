@@ -18,6 +18,8 @@ import {
     LinkCreationState,
     NodeEditorInternalCallbacks,
     NodeEditorComputations,
+    NodeEditorEvents,
+    GroupData,
     LinkPath,
 } from "@nodeeditor";
 
@@ -34,10 +36,12 @@ export struct NodeData {
     y: float,
     /// Projected from the application's selection (the editor holds none)
     selected: bool,
+    /// Membership: the group this node belongs to, or 0
+    group-id: int,
 }
 
 // Re-export for Rust
-export { BoxSelectionModifier, LinkData, GeometryVersion, DragState, HoverState, LinkCreation, LinkCreationState, NodeEditorInternalCallbacks, NodeEditorComputations }
+export { BoxSelectionModifier, LinkData, GroupData, GeometryVersion, DragState, HoverState, LinkCreation, LinkCreationState, NodeEditorInternalCallbacks, NodeEditorComputations, NodeEditorEvents }
 
 component SimpleNode inherits BaseNode {
     in property <bool> focus-test-enabled: false;
@@ -128,6 +132,7 @@ export component MainWindow inherits Window {
 
     in property <[NodeData]> nodes;
     in property <[LinkData]> links <=> editor.links;
+    in property <[GroupData]> groups <=> editor.groups;
     in-out property <string> grid_commands <=> editor.grid-commands;
 
     // Size for grid generation
@@ -166,6 +171,7 @@ export component MainWindow inherits Window {
     // Selection intents — pure gesture reports, applied application-side
     callback node-selected <=> editor.node-selected;
     callback select-link <=> editor.select-link;
+    callback group-selected <=> editor.group-selected;
     callback selection-cleared <=> editor.selection-cleared;
     callback box-selection-committed <=> editor.box-selection-committed;
 
@@ -220,6 +226,7 @@ export component MainWindow inherits Window {
             input-pin-visible: data.id == 1 ? root.test-input-pin-visible : true;
             input-pin-enabled: data.id == 1 ? root.test-input-pin-enabled : true;
             selected: data.selected;
+            group-id: data.group-id;
             embedded-control-clicked => {
                 if data.id == 1 {
                     root.embedded-control-click-count += 1;

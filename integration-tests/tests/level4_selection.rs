@@ -330,6 +330,7 @@ fn negative_node_ids_select() {
             x: 0.0,
             y: 0.0,
             selected: false,
+            group_id: 0,
         }],
         vec![],
     );
@@ -348,6 +349,7 @@ fn a_zero_node_id_selects() {
             x: 0.0,
             y: 0.0,
             selected: false,
+            group_id: 0,
         }],
         vec![],
     );
@@ -366,6 +368,7 @@ fn selection_scales_to_many_nodes() {
             x: (i as f32) * 150.0,
             y: 100.0,
             selected: false,
+            group_id: 0,
         })
         .collect();
 
