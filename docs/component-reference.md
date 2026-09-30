@@ -545,4 +545,6 @@ first size for each node ID wins, valid nodes and edges are ordered by ID,
 and duplicate edges, self-loops, and edges with missing endpoints are ignored.
 Nodes with non-finite or non-positive dimensions are omitted. Disconnected
 components are ordered by their lowest node ID and packed along the axis
-perpendicular to the layout direction without overlap.
+perpendicular to the layout direction without overlap. Positions are the
+nodes' top-left corners, and each component's first rank starts at 0 on the
+layer axis.
