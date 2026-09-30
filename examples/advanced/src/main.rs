@@ -258,6 +258,7 @@ fn build_app() -> App {
             line_width: 1.5, // Thin link
             status: -1,
             selected: false,
+            ..Default::default()
         },
         LinkData {
             id: 2,
@@ -267,6 +268,7 @@ fn build_app() -> App {
             line_width: 5.0, // Thick link to demonstrate feature
             status: -1,
             selected: false,
+            ..Default::default()
         },
     ]));
     window.set_links(ModelRc::from(links.clone()));
@@ -527,6 +529,7 @@ fn build_app() -> App {
                     line_width: 2.0,
                     status: -1,
                     selected: false,
+                    ..Default::default()
                 };
                 links.push(data);
             }

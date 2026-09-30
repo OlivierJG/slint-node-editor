@@ -114,6 +114,7 @@ impl MinimalTestHarness {
                 line_width: 2.0,
                 status: -1,
                 selected: false,
+                ..Default::default()
             }],
         )
     }

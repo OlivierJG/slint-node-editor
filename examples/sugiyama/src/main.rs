@@ -150,6 +150,7 @@ fn main() {
             line_width: 2.0,
             status: -1,
             selected: false,
+            ..Default::default()
         })
         .collect();
     window.set_links(ModelRc::from(Rc::new(VecModel::from(link_data))));
