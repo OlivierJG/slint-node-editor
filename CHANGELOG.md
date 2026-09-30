@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- `sugiyama_layout` returns top-left corners as documented; it returned
+  rust-sugiyama's centres, so cards of unequal size overlapped. The layout
+  starts at the origin, and each component's first rank starts at 0 on the
+  layer axis.
+
 ## 1.0.1 — 2026-09-17
 
 Documentation-only patch. The library API and implementation are unchanged.
