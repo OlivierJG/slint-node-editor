@@ -10,6 +10,9 @@ import {
     Pin,
     PinTypes,
     LinkData,
+    LinkColor,
+    LinkStatus,
+    LinkStatusColors,
     ViewportState,
     GeometryVersion,
     DragState,
@@ -41,7 +44,7 @@ export struct NodeData {
 }
 
 // Re-export for Rust
-export { BoxSelectionModifier, LinkData, GroupData, GeometryVersion, DragState, HoverState, LinkCreation, LinkCreationState, NodeEditorInternalCallbacks, NodeEditorComputations, NodeEditorEvents }
+export { BoxSelectionModifier, LinkData, LinkColor, LinkStatus, LinkStatusColors, GroupData, GeometryVersion, DragState, HoverState, LinkCreation, LinkCreationState, NodeEditorInternalCallbacks, NodeEditorComputations, NodeEditorEvents }
 
 component SimpleNode inherits BaseNode {
     in property <bool> focus-test-enabled: false;

@@ -54,6 +54,9 @@ in property <float> bezier-min-offset: 50.0;   // Min horizontal offset for curv
 in property <bool> box-selection-on-empty: true;
 in property <BoxSelectionModifier> box-selection-modifier: BoxSelectionModifier.ctrl;
 
+// Link colours: the palette LinkData.accent indexes from 1 (see Link)
+in property <[color]> link-accent-colors: [];
+
 // Minimap
 in property <bool> minimap-enabled: false;
 in property <MinimapPosition> minimap-position: bottom-right;
@@ -306,6 +309,13 @@ in property <length> line-width: 2px;
 in property <bool> selected: false;
 in property <bool> hovered: false;
 ```
+
+**Link colour.** `LinkData.accent` is a 1-based index into `NodeEditor`'s
+`link-accent-colors`: 0, the default, is no accent, and an index outside the
+palette falls through to the link's `color`. With `link-accent-colors` left at
+its empty default, `accent` has no effect. How the accent ranks against
+`status` and `color` is stated once, on the exported `LinkColor.of`, which
+`NodeEditor` applies to every link and a host drawing its own links can call.
 
 **`LinkPath`:**
 ```slint

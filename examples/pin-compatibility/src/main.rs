@@ -237,6 +237,7 @@ fn build_app() -> MainWindow {
                         line_width: 2.5,
                         status: -1,
                         selected: false,
+                        ..Default::default()
                     };
 
                     println!(

@@ -468,11 +468,11 @@ export enum MinimapPosition {
 
 /// Standard link status constants for computation graphs.
 /// Applications can use these or define their own status values.
-/// Status < 0 means "no status" — the link uses its `color` field directly.
+/// Status < 0 means "no status" — the link uses its `accent` or `color` field.
 /// Note: Slint struct fields default to 0 (= idle). Applications that use
 /// explicit colors instead of statuses must set `status: LinkStatus.none` (-1).
 export global LinkStatus {
-    /// No status — link uses its color field directly.
+    /// No status — link uses its accent or color field.
     out property <int> none: -1;
     /// Not yet computed / idle.
     out property <int> idle: 0;
@@ -508,9 +508,43 @@ export struct LinkData {
     selected: bool,
     /// Line width in pixels (default: 2.0 if not specified)
     line-width: float,
-    /// Computation status (-1 = no status, use color field; >= 0 = use status color).
-    /// Default (0) maps to idle. Set to LinkStatus.none (-1) to use the color field.
+    /// Computation status (-1 = no status, use accent or color field; >= 0 = use status color).
+    /// Default (0) maps to idle. Set to LinkStatus.none (-1) to use the accent or color field.
     status: int,
+    /// A 1-based index into the editor's `link-accent-colors`, used when `status`
+    /// is not a known status. 0 (the default) is no accent; an index out of range
+    /// falls through to `color`.
+    accent: int,
+}
+
+/// The colour a link is drawn in: the one rule `NodeEditor`'s link repeater applies.
+export global LinkColor {
+    /// In order: a known status (idle, running, succeeded, failed) takes its
+    /// `LinkStatusColors` colour; otherwise an `accent` in `1..=accents.length`
+    /// takes `accents[accent - 1]`; otherwise the link's own `color`.
+    ///
+    /// Status comes first because it is transient state that already overrides
+    /// `color`, and a running or failed link says more than its identity. The
+    /// accent comes before `color` because an application that binds a palette
+    /// means it. Keys count from 1 so that the struct default, 0, is no accent.
+    public pure function of(link: LinkData, accents: [color]) -> color {
+        if (link.status == LinkStatus.running) {
+            return LinkStatusColors.running;
+        }
+        if (link.status == LinkStatus.succeeded) {
+            return LinkStatusColors.succeeded;
+        }
+        if (link.status == LinkStatus.failed) {
+            return LinkStatusColors.failed;
+        }
+        if (link.status == LinkStatus.idle) {
+            return LinkStatusColors.idle;
+        }
+        if (link.accent >= 1 && link.accent <= accents.length) {
+            return accents[link.accent - 1];
+        }
+        return link.color;
+    }
 }
 
 /// Logical group data (what the application provides). One row per group;

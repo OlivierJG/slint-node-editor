@@ -5,10 +5,10 @@
 mod common;
 
 use common::harness::{
-    DragState, HoverState, LinkCreation, LinkCreationState, MinimalTestHarness,
-    NodeEditorInternalCallbacks,
+    DragState, HoverState, LinkColor, LinkCreation, LinkCreationState, LinkData, LinkStatus,
+    LinkStatusColors, MinimalTestHarness, NodeEditorInternalCallbacks,
 };
-use slint::{Color, ComponentHandle, Model, SharedString};
+use slint::{Color, ComponentHandle, Model, SharedString, VecModel};
 use slint_node_editor::NodeGeometry;
 
 fn realize(harness: &MinimalTestHarness) {
@@ -645,6 +645,7 @@ fn test_add_new_link_to_model() {
         line_width: 2.0,
         status: -1,
         selected: false,
+        ..Default::default()
     });
 
     assert_eq!(harness.links.row_count(), 1);
@@ -669,6 +670,7 @@ fn test_multiple_links_supported() {
         line_width: 2.0,
         status: -1,
         selected: false,
+        ..Default::default()
     });
 
     assert_eq!(harness.links.row_count(), 2);
@@ -710,6 +712,83 @@ fn test_link_colors_preserved() {
     assert_eq!(link.color.alpha(), 255, "Alpha should be fully opaque");
     assert!(link.color.red() > 0, "Should have red component");
     assert!(link.color.blue() > 0, "Should have blue component");
+}
+
+const EXPLICIT: Color = Color::from_rgb_u8(10, 200, 30);
+const FIRST_ACCENT: Color = Color::from_rgb_u8(200, 10, 180);
+const SECOND_ACCENT: Color = Color::from_rgb_u8(20, 40, 220);
+
+/// A link with no status override, no accent and the `EXPLICIT` colour.
+fn plain_link() -> LinkData {
+    LinkData::new(1, 3, 4, EXPLICIT)
+}
+
+fn link_color(harness: &MinimalTestHarness, link: LinkData, palette: &[Color]) -> Color {
+    harness
+        .window
+        .global::<LinkColor>()
+        .invoke_of(link, VecModel::from_slice(palette))
+}
+
+#[test]
+fn link_color_status_wins_over_the_accent() {
+    let harness = MinimalTestHarness::new();
+    let status = harness.window.global::<LinkStatus>();
+    let colors = harness.window.global::<LinkStatusColors>();
+    let arms = [
+        ("idle", status.get_idle(), colors.get_idle()),
+        ("running", status.get_running(), colors.get_running()),
+        ("succeeded", status.get_succeeded(), colors.get_succeeded()),
+        ("failed", status.get_failed(), colors.get_failed()),
+    ];
+
+    for (name, status, expected) in arms {
+        let link = LinkData {
+            status,
+            accent: 1,
+            ..plain_link()
+        };
+        assert_eq!(
+            link_color(&harness, link, &[FIRST_ACCENT]),
+            expected,
+            "status {name}"
+        );
+    }
+}
+
+#[test]
+fn link_color_accent_indexes_the_palette_from_one() {
+    let harness = MinimalTestHarness::new();
+    let link = LinkData {
+        accent: 2,
+        ..plain_link()
+    };
+
+    assert_eq!(
+        link_color(&harness, link, &[FIRST_ACCENT, SECOND_ACCENT]),
+        SECOND_ACCENT
+    );
+}
+
+#[test]
+fn link_color_falls_back_to_the_explicit_color() {
+    let harness = MinimalTestHarness::new();
+    let palette = [FIRST_ACCENT, SECOND_ACCENT];
+
+    // The constructor carries no accent, so a bound palette leaves it alone.
+    assert_eq!(link_color(&harness, plain_link(), &palette), EXPLICIT);
+
+    let past_the_end = LinkData {
+        accent: 3,
+        ..plain_link()
+    };
+    assert_eq!(link_color(&harness, past_the_end, &palette), EXPLICIT);
+
+    let no_palette = LinkData {
+        accent: 1,
+        ..plain_link()
+    };
+    assert_eq!(link_color(&harness, no_palette, &[]), EXPLICIT);
 }
 
 #[test]

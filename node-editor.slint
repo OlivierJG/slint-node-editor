@@ -53,6 +53,7 @@ import {
     LinkStatusColors,
     GroupData,
     GroupStyleDefaults,
+    LinkColor,
     Minimap,
     Link,
     BaseNode,
@@ -63,7 +64,7 @@ import {
 // Globals used by both compiled library functions and consumer-instantiated
 // components must be exported by the module. Otherwise Slint gives the consumer
 // a separate instance and lifecycle notifications never reach its components.
-export { PinTypes, ViewportState, DragState, GeometryVersion, NodeEditorInternalCallbacks, LinkCreationState, LinkCreation, SelectionRequest, GroupSelectionRequest, GroupVisibility, HoverState, NodeEditorEvents, NodeEditorComputations, NodeEditorGestureConfig, BoxSelectionGestureState, BoxSelectionGesture, InteractionCancellation, NodeStyleDefaults, BoxSelectionModifier, MinimapNode, MinimapPosition, LinkData, LinkPath, LinkStatus, LinkStatusColors, GroupData, GroupStyleDefaults, Minimap, Link, BaseNode, BaseGroup, GroupSheet, Pin }
+export { PinTypes, ViewportState, DragState, GeometryVersion, NodeEditorInternalCallbacks, LinkCreationState, LinkCreation, SelectionRequest, GroupSelectionRequest, GroupVisibility, HoverState, NodeEditorEvents, NodeEditorComputations, NodeEditorGestureConfig, BoxSelectionGestureState, BoxSelectionGesture, InteractionCancellation, NodeStyleDefaults, BoxSelectionModifier, MinimapNode, MinimapPosition, LinkData, LinkPath, LinkStatus, LinkStatusColors, LinkColor, GroupData, GroupStyleDefaults, Minimap, Link, BaseNode, BaseGroup, GroupSheet, Pin }
 
 /// Pure Slint node editor composite component.
 ///
@@ -175,6 +176,9 @@ export component NodeEditor inherits FocusScope {
     // === Link data (set by application) ===
     /// Logical link data - application provides this
     in property <[LinkData]> links: [];
+    /// The palette `LinkData.accent` indexes from 1. Bind it to the application's
+    /// theme so link colours follow the theme with no push from Rust.
+    in property <[color]> link-accent-colors: [];
 
     // === Group data (set by application) ===
     /// One row per group. The editor renders a `GroupSheet` for each below
@@ -890,11 +894,7 @@ export component NodeEditor inherits FocusScope {
             // callback would evaluate it again, and a GeometryVersion bump
             // already re-evaluates every link in the graph.
             geometry: NodeEditorComputations.compute-link-path(link.start-pin-id, link.end-pin-id, GeometryVersion.version);
-            link-color: link.status == LinkStatus.running ? LinkStatusColors.running
-                      : link.status == LinkStatus.succeeded ? LinkStatusColors.succeeded
-                      : link.status == LinkStatus.failed ? LinkStatusColors.failed
-                      : link.status == LinkStatus.idle ? LinkStatusColors.idle
-                      : link.color;  // status < 0 (LinkStatus.none): use explicit color
+            link-color: LinkColor.of(link, root.link-accent-colors);
             line-width: link.line-width > 0 ? link.line-width * 1px : 2px;
             selected: link.selected;
             hovered: root.hovered-link-id == link.id;

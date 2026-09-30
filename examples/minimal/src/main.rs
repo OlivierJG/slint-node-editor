@@ -66,6 +66,7 @@ fn build_app() -> App {
         line_width: 2.0,
         status: -1,
         selected: false,
+        ..Default::default()
     }]))));
 
     // Commit a finished drag: the dragged node, plus anything else the rows

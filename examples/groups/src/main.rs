@@ -78,6 +78,7 @@ fn link(id: i32, from_node: i32, to_node: i32) -> LinkData {
         line_width: 2.0,
         status: -1,
         selected: false,
+        ..Default::default()
     }
 }
 
@@ -334,6 +335,7 @@ fn build_app() -> App {
                     line_width: 2.0,
                     status: -1,
                     selected: false,
+                    ..Default::default()
                 });
             }
         }
