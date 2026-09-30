@@ -717,17 +717,22 @@ fn test_link_colors_preserved() {
 const EXPLICIT: Color = Color::from_rgb_u8(10, 200, 30);
 const FIRST_ACCENT: Color = Color::from_rgb_u8(200, 10, 180);
 const SECOND_ACCENT: Color = Color::from_rgb_u8(20, 40, 220);
+/// Passed on every call, so a test of an undimmed link also pins that the
+/// alpha leaves it alone.
+const DIMMED_ALPHA: f32 = 0.25;
 
-/// A link with no status override, no accent and the `EXPLICIT` colour.
+/// A link with no status override, no accent, not dimmed and the `EXPLICIT`
+/// colour.
 fn plain_link() -> LinkData {
     LinkData::new(1, 3, 4, EXPLICIT)
 }
 
 fn link_color(harness: &MinimalTestHarness, link: LinkData, palette: &[Color]) -> Color {
-    harness
-        .window
-        .global::<LinkColor>()
-        .invoke_of(link, VecModel::from_slice(palette))
+    harness.window.global::<LinkColor>().invoke_of(
+        link,
+        VecModel::from_slice(palette),
+        DIMMED_ALPHA,
+    )
 }
 
 #[test]
@@ -789,6 +794,76 @@ fn link_color_falls_back_to_the_explicit_color() {
         ..plain_link()
     };
     assert_eq!(link_color(&harness, no_palette, &[]), EXPLICIT);
+}
+
+// A `Color` holds 8-bit channels, so the expectations are bytes: the dimmed
+// alpha is whatever `transparentize` quantises to, not 255 * 0.25.
+#[test]
+fn link_color_a_dimmed_link_keeps_its_hue_at_the_dimmed_alpha() {
+    let harness = MinimalTestHarness::new();
+    let palette = [FIRST_ACCENT];
+    let arms = [
+        (
+            "failed status",
+            LinkData {
+                status: harness.window.global::<LinkStatus>().get_failed(),
+                ..plain_link()
+            },
+        ),
+        (
+            "accent",
+            LinkData {
+                accent: 1,
+                ..plain_link()
+            },
+        ),
+        ("explicit color", plain_link()),
+    ];
+
+    for (name, link) in arms {
+        let undimmed = link_color(&harness, link.clone(), &palette);
+        let dimmed = link_color(
+            &harness,
+            LinkData {
+                dimmed: true,
+                ..link
+            },
+            &palette,
+        );
+
+        assert_eq!(undimmed.alpha(), 255, "{name}: the arm's colour is opaque");
+        assert_eq!(
+            dimmed,
+            undimmed.transparentize(1.0 - DIMMED_ALPHA),
+            "{name}"
+        );
+        assert_eq!(dimmed.alpha(), 64, "{name}: 255 * 0.25 = 63.75 rounds up");
+        assert_eq!(
+            (dimmed.red(), dimmed.green(), dimmed.blue()),
+            (undimmed.red(), undimmed.green(), undimmed.blue()),
+            "{name}: the hue stays"
+        );
+    }
+}
+
+#[test]
+fn link_color_a_dimmed_translucent_color_multiplies() {
+    let harness = MinimalTestHarness::new();
+    // The byte stated: a float alpha of 0.5 would store as 127.
+    let translucent = Color::from_argb_u8(128, EXPLICIT.red(), EXPLICIT.green(), EXPLICIT.blue());
+    let link = LinkData {
+        dimmed: true,
+        ..LinkData::new(1, 3, 4, translucent)
+    };
+
+    let dimmed = link_color(&harness, link, &[]);
+
+    // 128 * 0.25 = 32; replacing the alpha with 0.25 would give 64.
+    assert_eq!(dimmed.alpha(), 32);
+    assert_eq!(
+        (dimmed.red(), dimmed.green(), dimmed.blue()),
+        (EXPLICIT.red(), EXPLICIT.green(), EXPLICIT.blue())
+    );
 }
 
 #[test]

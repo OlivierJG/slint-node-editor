@@ -515,19 +515,32 @@ export struct LinkData {
     /// is not a known status. 0 (the default) is no accent; an index out of range
     /// falls through to `color`.
     accent: int,
+    /// Draw the link faded to the editor's `dimmed-link-alpha`, e.g. to set apart
+    /// what an application's focus excludes. Default `false`.
+    dimmed: bool,
 }
 
 /// The colour a link is drawn in: the one rule `NodeEditor`'s link repeater applies.
 export global LinkColor {
     /// In order: a known status (idle, running, succeeded, failed) takes its
     /// `LinkStatusColors` colour; otherwise an `accent` in `1..=accents.length`
-    /// takes `accents[accent - 1]`; otherwise the link's own `color`.
+    /// takes `accents[accent - 1]`; otherwise the link's own `color`. Last, a
+    /// `dimmed` link keeps that colour's hue at `dimmed-alpha` times its alpha.
     ///
     /// Status comes first because it is transient state that already overrides
     /// `color`, and a running or failed link says more than its identity. The
     /// accent comes before `color` because an application that binds a palette
     /// means it. Keys count from 1 so that the struct default, 0, is no accent.
-    public pure function of(link: LinkData, accents: [color]) -> color {
+    /// The dim applies over every step, status included: it says the link is
+    /// outside the application's focus whatever its state, and keeping the hue
+    /// keeps a failed link recognisably failed. It multiplies alpha rather than
+    /// replacing it, so an already translucent colour keeps its proportion.
+    public pure function of(link: LinkData, accents: [color], dimmed-alpha: float) -> color {
+        let color = undimmed(link, accents);
+        return link.dimmed ? color.transparentize(1 - dimmed-alpha) : color;
+    }
+
+    pure function undimmed(link: LinkData, accents: [color]) -> color {
         if (link.status == LinkStatus.running) {
             return LinkStatusColors.running;
         }
