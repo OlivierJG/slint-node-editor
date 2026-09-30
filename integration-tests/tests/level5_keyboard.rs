@@ -95,6 +95,7 @@ fn test_delete_removes_selected_links_from_model() {
                 line_width: 2.0,
                 status: -1,
                 selected: false,
+                ..Default::default()
             },
             LinkData {
                 id: 2,
@@ -104,6 +105,7 @@ fn test_delete_removes_selected_links_from_model() {
                 line_width: 2.0,
                 status: -1,
                 selected: false,
+                ..Default::default()
             },
         ],
     );
@@ -159,6 +161,7 @@ fn test_deleting_node_should_also_remove_connected_links() {
             line_width: 2.0,
             status: -1,
             selected: false,
+            ..Default::default()
         }],
     );
 

@@ -62,6 +62,7 @@ fn main() {
             line_width: 2.0,
             status: -1,
             selected: false,
+            ..Default::default()
         },
         // Link from Input output (pin 11) to Display input (pin 30)
         LinkData {
@@ -72,6 +73,7 @@ fn main() {
             line_width: 2.0,
             status: -1,
             selected: false,
+            ..Default::default()
         },
     ]));
 

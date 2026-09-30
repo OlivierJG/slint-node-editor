@@ -160,6 +160,7 @@ fn build_app() -> QuickStart {
                 selected: false,
                 line_width: 2.0,
                 status: -1,
+                ..Default::default()
             });
             next_link_id.set(next_link_id.get() + 1);
         }

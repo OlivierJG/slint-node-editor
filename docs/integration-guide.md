@@ -212,9 +212,23 @@ remain caller-validated APIs.
 
 `LinkData::default()` has Slint's zero-valued status (idle), which overrides its
 color. Use `LinkData::new(id, output, input, color)` for a 2px colored link with
-no status override. Link box selection uses endpoint inclusion: either endpoint
-inside or on the box selects the link; a crossing curve whose endpoints are
-both outside is omitted.
+no status override and no accent. Link box selection uses endpoint inclusion:
+either endpoint inside or on the box selects the link; a crossing curve whose
+endpoints are both outside is omitted.
+
+To colour links from your theme, bind `NodeEditor.link-accent-colors` to your
+theme's colours and set each link's `accent` to a 1-based index into it. A link
+with no known status then takes that palette entry, and a theme change recolours
+it with no push from Rust:
+
+```slint
+editor := NodeEditor {
+    link-accent-colors: [Theme.data-link, Theme.control-link];
+}
+```
+
+An `accent` of 0, the default, or one outside the palette leaves the link its
+`color`.
 
 ### Replacing and seeding a graph
 

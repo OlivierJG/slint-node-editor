@@ -461,6 +461,7 @@ fn test_find_links_connected_to_node() {
                 line_width: 2.0,
                 status: -1,
                 selected: false,
+                ..Default::default()
             },
             LinkData {
                 id: 2,
@@ -470,6 +471,7 @@ fn test_find_links_connected_to_node() {
                 line_width: 2.0,
                 status: -1,
                 selected: false,
+                ..Default::default()
             },
         ],
     );

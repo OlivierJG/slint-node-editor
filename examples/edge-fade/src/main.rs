@@ -85,6 +85,7 @@ fn main() {
             line_width: 2.5,
             status: -1,
             selected: false,
+            ..Default::default()
         },
         LinkData {
             id: 2,
@@ -94,6 +95,7 @@ fn main() {
             line_width: 2.5,
             status: -1,
             selected: false,
+            ..Default::default()
         },
         LinkData {
             id: 3,
@@ -103,6 +105,7 @@ fn main() {
             line_width: 2.5,
             status: -1,
             selected: false,
+            ..Default::default()
         },
         LinkData {
             id: 4,
@@ -112,6 +115,7 @@ fn main() {
             line_width: 2.5,
             status: -1,
             selected: false,
+            ..Default::default()
         },
         LinkData {
             id: 5,
@@ -121,6 +125,7 @@ fn main() {
             line_width: 2.5,
             status: -1,
             selected: false,
+            ..Default::default()
         },
     ]))));
 

@@ -8,6 +8,13 @@
   layer axis.
 - `SugiyamaConfig::rank_alignment` aligns a rank's nodes on their leading edge
   (`Start`) or their centre (`Center`, the default).
+- `LinkData.accent` indexes `NodeEditor.link-accent-colors` from 1, a palette
+  the application binds, and colours a link that has no known status; 0, the
+  default, is no accent, and an index outside the palette leaves the link its
+  `color`. The rule is `LinkColor.of`, exported for hosts that draw their own
+  links. A new field on `LinkData`: a Rust struct literal naming every field
+  must add it or end in `..Default::default()`; `LinkData::new`'s signature and
+  the link it builds are unchanged.
 
 ## 1.0.1 — 2026-09-17
 
