@@ -547,4 +547,7 @@ Nodes with non-finite or non-positive dimensions are omitted. Disconnected
 components are ordered by their lowest node ID and packed along the axis
 perpendicular to the layout direction without overlap. Positions are the
 nodes' top-left corners, and each component's first rank starts at 0 on the
+layer axis. `SugiyamaConfig::rank_alignment` lines a rank's nodes up on their
+centre (`RankAlignment::Center`, the default) or on the rank's leading edge
+(`RankAlignment::Start`), which matters when they differ in extent along the
 layer axis.

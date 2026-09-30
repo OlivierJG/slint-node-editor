@@ -25,6 +25,8 @@
   rust-sugiyama's centres, so nodes of unequal size overlapped. The layout
   starts at the origin, and each component's first rank starts at 0 on the
   layer axis.
+- `SugiyamaConfig::rank_alignment` aligns a rank's nodes on their leading edge
+  (`Start`) or their centre (`Center`, the default).
 
 ## 1.0.1 — 2026-09-17
 

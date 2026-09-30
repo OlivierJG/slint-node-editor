@@ -28,6 +28,25 @@ pub enum Direction {
     LeftToRight,
 }
 
+/// How the nodes of one rank line up on the layer axis.
+///
+/// A rank's nodes can differ in extent along the layer axis (height for
+/// [`Direction::TopToBottom`], width for [`Direction::LeftToRight`]). Either
+/// they share a centre line, or they share the rank's leading edge.
+///
+/// Marked `#[non_exhaustive]` so further alignments (e.g. `End`) can be added
+/// without breaking callers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
+pub enum RankAlignment {
+    /// Each node is centred on its rank's centre line (default).
+    #[default]
+    Center,
+    /// Each node starts at its rank's leading edge: the rank's top for
+    /// [`Direction::TopToBottom`], its left for [`Direction::LeftToRight`].
+    Start,
+}
+
 /// A positioned node returned by [`sugiyama_layout`].
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct NodePosition {
@@ -53,6 +72,9 @@ pub struct SugiyamaConfig {
     pub dummy_vertices: bool,
     /// Layout direction (default: [`Direction::TopToBottom`]).
     pub direction: Direction,
+    /// How a rank's nodes line up on the layer axis (default:
+    /// [`RankAlignment::Center`]).
+    pub rank_alignment: RankAlignment,
 }
 
 /// Compute Sugiyama hierarchical layout positions.
@@ -99,19 +121,21 @@ pub fn sugiyama_layout(
         .map(|(idx, &(node_id, _))| (node_id, idx as u32))
         .collect();
 
-    // For horizontal layout, swap width/height so the algorithm spaces layers
-    // along what will become the x-axis.
+    // A node's (in-layer, layer-axis) extents, the frame rust-sugiyama lays
+    // out in: for horizontal layout, width and height swap so the algorithm
+    // spaces layers along what will become the x-axis.
+    let extents = |(width, height): (f64, f64)| {
+        if horizontal {
+            (height, width)
+        } else {
+            (width, height)
+        }
+    };
+
     let vertices: Vec<(u32, (f64, f64))> = nodes
         .iter()
         .enumerate()
-        .map(|(idx, &(_, (width, height)))| {
-            let size = if horizontal {
-                (height, width)
-            } else {
-                (width, height)
-            };
-            (idx as u32, size)
-        })
+        .map(|(idx, &(_, size))| (idx as u32, extents(size)))
         .collect();
 
     let mapped_edges: Vec<(u32, u32)> = edges
@@ -163,26 +187,40 @@ pub fn sugiyama_layout(
         let mut max_perp = f64::NEG_INFINITY;
         let mut min_layer = f64::INFINITY;
 
+        // Each rank's largest layer-axis extent, keyed by the rank's centre
+        // line. rust-sugiyama gives every vertex of a rank the same layer
+        // coordinate from one lookup, so its bits identify the rank exactly.
+        let mut rank_extents: BTreeMap<u64, f64> = BTreeMap::new();
+        if config.rank_alignment == RankAlignment::Start {
+            for &(idx, (_, layer_centre)) in layout {
+                if let Some(&(_, size)) = nodes.get(idx) {
+                    let rank_extent = rank_extents.entry(layer_centre.to_bits()).or_insert(0.0);
+                    *rank_extent = rank_extent.max(extents(size).1);
+                }
+            }
+        }
+
         let start = results.len();
-        for &(idx, (x, y)) in layout {
-            if let Some(&(node_id, (node_width, node_height))) = nodes.get(idx) {
+        for &(idx, (in_layer_centre, layer_centre)) in layout {
+            if let Some(&(node_id, size)) = nodes.get(idx) {
                 // rust-sugiyama returns each vertex's centre: its rank's
                 // centre line on the layer axis, and its centre in-layer.
-                let (centre_x, centre_y) = if horizontal { (y, x) } else { (x, y) };
-                let position = NodePosition {
-                    id: node_id,
-                    x: centre_x - node_width / 2.0,
-                    y: centre_y - node_height / 2.0,
+                let (in_layer_extent, layer_extent) = extents(size);
+                let aligned_extent = match config.rank_alignment {
+                    RankAlignment::Center => layer_extent,
+                    RankAlignment::Start => rank_extents[&layer_centre.to_bits()],
                 };
-                results.push(position);
-
-                let (perpendicular_position, perpendicular_size, layer_position) = if horizontal {
-                    (position.y, node_height, position.x)
+                let in_layer_position = in_layer_centre - in_layer_extent / 2.0;
+                let layer_position = layer_centre - aligned_extent / 2.0;
+                let (x, y) = if horizontal {
+                    (layer_position, in_layer_position)
                 } else {
-                    (position.x, node_width, position.y)
+                    (in_layer_position, layer_position)
                 };
-                min_perp = min_perp.min(perpendicular_position);
-                max_perp = max_perp.max(perpendicular_position + perpendicular_size);
+                results.push(NodePosition { id: node_id, x, y });
+
+                min_perp = min_perp.min(in_layer_position);
+                max_perp = max_perp.max(in_layer_position + in_layer_extent);
                 min_layer = min_layer.min(layer_position);
             }
         }
@@ -412,6 +450,7 @@ mod tests {
         assert_eq!(config.minimum_length, 0);
         assert!(!config.dummy_vertices);
         assert_eq!(config.direction, Direction::TopToBottom);
+        assert_eq!(config.rank_alignment, RankAlignment::Center);
     }
 
     #[test]
@@ -590,6 +629,8 @@ mod tests {
         }
     }
 
+    const ALIGNMENTS: [RankAlignment; 2] = [RankAlignment::Center, RankAlignment::Start];
+
     fn spaced(direction: Direction) -> SugiyamaConfig {
         SugiyamaConfig {
             vertex_spacing: 60.0,
@@ -636,45 +677,106 @@ mod tests {
     #[test]
     fn consecutive_ranks_do_not_overlap() {
         for direction in DIRECTIONS {
-            let sizes = vec![
-                (1, size_along(direction, 600.0, 100.0)),
-                (2, size_along(direction, 100.0, 100.0)),
-            ];
-            let positions = pos_map(sugiyama_layout(&[(1, 2)], &sizes, &spaced(direction)));
-            let (layer_1, _) = axes(direction, positions[&1]);
-            let (layer_2, _) = axes(direction, positions[&2]);
-            assert!(
-                layer_2 - (layer_1 + 600.0) >= 60.0 - 1e-9,
-                "ranks closer than the spacing in {direction:?}: {positions:?}"
-            );
+            for rank_alignment in ALIGNMENTS {
+                let sizes = vec![
+                    (1, size_along(direction, 600.0, 100.0)),
+                    (2, size_along(direction, 100.0, 100.0)),
+                ];
+                let positions = pos_map(sugiyama_layout(
+                    &[(1, 2)],
+                    &sizes,
+                    &SugiyamaConfig {
+                        rank_alignment,
+                        ..spaced(direction)
+                    },
+                ));
+                let (layer_1, _) = axes(direction, positions[&1]);
+                let (layer_2, _) = axes(direction, positions[&2]);
+                assert!(
+                    layer_2 - (layer_1 + 600.0) >= 60.0 - 1e-9,
+                    "ranks closer than the spacing in {direction:?}, {rank_alignment:?}: \
+                     {positions:?}"
+                );
+            }
         }
     }
 
     #[test]
     fn every_component_starts_at_0_on_the_layer_axis() {
         for direction in DIRECTIONS {
-            // Two components whose first ranks differ in layer-axis extent.
+            for rank_alignment in ALIGNMENTS {
+                // Two components whose first ranks differ in layer-axis extent.
+                let sizes = vec![
+                    (1, size_along(direction, 600.0, 100.0)),
+                    (2, size_along(direction, 100.0, 100.0)),
+                    (3, size_along(direction, 100.0, 100.0)),
+                    (4, size_along(direction, 300.0, 100.0)),
+                ];
+                let positions = pos_map(sugiyama_layout(
+                    &[(1, 2), (3, 4)],
+                    &sizes,
+                    &SugiyamaConfig {
+                        rank_alignment,
+                        ..spaced(direction)
+                    },
+                ));
+                for component in [[1, 2], [3, 4]] {
+                    let leading_edge = component
+                        .iter()
+                        .map(|id| axes(direction, positions[id]).0)
+                        .fold(f64::INFINITY, f64::min);
+                    assert_eq!(
+                        leading_edge, 0.0,
+                        "component {component:?} in {direction:?}, {rank_alignment:?}: \
+                         {positions:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn start_alignment_shares_each_ranks_leading_edge() {
+        for direction in DIRECTIONS {
+            // 1 and 2 share the rank before 3 and differ in layer-axis extent.
             let sizes = vec![
                 (1, size_along(direction, 600.0, 100.0)),
                 (2, size_along(direction, 100.0, 100.0)),
                 (3, size_along(direction, 100.0, 100.0)),
-                (4, size_along(direction, 300.0, 100.0)),
             ];
-            let positions = pos_map(sugiyama_layout(
-                &[(1, 2), (3, 4)],
-                &sizes,
-                &spaced(direction),
-            ));
-            for component in [[1, 2], [3, 4]] {
-                let leading_edge = component
-                    .iter()
-                    .map(|id| axes(direction, positions[id]).0)
-                    .fold(f64::INFINITY, f64::min);
-                assert_eq!(
-                    leading_edge, 0.0,
-                    "component {component:?} in {direction:?}: {positions:?}"
-                );
-            }
+            let layout = |rank_alignment| {
+                let positions = pos_map(sugiyama_layout(
+                    &[(1, 3), (2, 3)],
+                    &sizes,
+                    &SugiyamaConfig {
+                        rank_alignment,
+                        ..spaced(direction)
+                    },
+                ));
+                let layer_1 = axes(direction, positions[&1]).0;
+                let layer_2 = axes(direction, positions[&2]).0;
+                (layer_1, layer_2, positions)
+            };
+
+            let (layer_1, layer_2, positions) = layout(RankAlignment::Start);
+            assert_eq!(
+                layer_1, layer_2,
+                "leading edges differ in {direction:?}: {positions:?}"
+            );
+            // The shared edge must come from the rank's largest extent, or
+            // the 600-wide node reaches into the next rank.
+            let layer_3 = axes(direction, positions[&3]).0;
+            assert!(
+                layer_3 - (layer_1 + 600.0) >= 60.0 - 1e-9,
+                "the next rank is closer than the spacing in {direction:?}: {positions:?}"
+            );
+
+            let (layer_1, layer_2, positions) = layout(RankAlignment::Center);
+            assert_eq!(
+                layer_1 + 300.0,
+                layer_2 + 50.0,
+                "centres differ in {direction:?}: {positions:?}"
+            );
         }
     }
 

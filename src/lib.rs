@@ -145,7 +145,8 @@ pub use graph::{
 pub use groups::{Bounds, Dragged, GroupLogic, GroupMember, GroupModel};
 #[cfg(feature = "layout")]
 pub use layout::{
-    sugiyama_layout, sugiyama_layout_from_cache, Direction, NodePosition, SugiyamaConfig,
+    sugiyama_layout, sugiyama_layout_from_cache, Direction, NodePosition, RankAlignment,
+    SugiyamaConfig,
 };
 pub use links::LinkManager;
 pub use setup::NodeEditorSetup;
