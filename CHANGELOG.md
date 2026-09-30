@@ -21,6 +21,10 @@
   boundary so public removal and reset hooks cancel consumer interactions (#7).
 - Cancel active forwarded marquees when retiring a pin or node, preventing a
   stale pointer release from committing the selection.
+- `sugiyama_layout` returns top-left corners as documented; it returned
+  rust-sugiyama's centres, so nodes of unequal size overlapped. The layout
+  starts at the origin, and each component's first rank starts at 0 on the
+  layer axis.
 
 ## 1.0.1 — 2026-09-17
 

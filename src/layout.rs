@@ -68,6 +68,10 @@ pub struct SugiyamaConfig {
 /// not positive are omitted. Edges with an omitted or unknown endpoint,
 /// self-loops, and duplicate edges are ignored; retained edges are ordered by
 /// their node-ID pair. Results are returned in ascending node-ID order.
+///
+/// Disconnected components are packed side by side on the axis perpendicular
+/// to the layers, and each component's first rank starts at 0 on the layer
+/// axis.
 pub fn sugiyama_layout(
     edges: &[(i32, i32)],
     node_sizes: &[(i32, (f64, f64))],
@@ -157,36 +161,47 @@ pub fn sugiyama_layout(
         // Compute bounding box of this subgraph in output coordinates
         let mut min_perp = f64::INFINITY;
         let mut max_perp = f64::NEG_INFINITY;
+        let mut min_layer = f64::INFINITY;
 
         let start = results.len();
         for &(idx, (x, y)) in layout {
             if let Some(&(node_id, (node_width, node_height))) = nodes.get(idx) {
-                let (px, py) = if horizontal { (y, x) } else { (x, y) };
-                results.push(NodePosition {
+                // rust-sugiyama returns each vertex's centre: its rank's
+                // centre line on the layer axis, and its centre in-layer.
+                let (centre_x, centre_y) = if horizontal { (y, x) } else { (x, y) };
+                let position = NodePosition {
                     id: node_id,
-                    x: px,
-                    y: py,
-                });
+                    x: centre_x - node_width / 2.0,
+                    y: centre_y - node_height / 2.0,
+                };
+                results.push(position);
 
-                let (perpendicular_position, perpendicular_size) = if horizontal {
-                    (py, node_height)
+                let (perpendicular_position, perpendicular_size, layer_position) = if horizontal {
+                    (position.y, node_height, position.x)
                 } else {
-                    (px, node_width)
+                    (position.x, node_width, position.y)
                 };
                 min_perp = min_perp.min(perpendicular_position);
                 max_perp = max_perp.max(perpendicular_position + perpendicular_size);
+                min_layer = min_layer.min(layer_position);
             }
         }
 
         if start < results.len() {
             // Shift this subgraph so its perpendicular leading edge sits at
-            // the running offset.
-            let shift = perpendicular_offset - min_perp;
+            // the running offset. On the layer axis its first rank's centre
+            // line is at 0, which leaves that rank's corners negative; each
+            // component is re-based on its own so no component starts
+            // indented by another's wider first rank.
+            let perpendicular_shift = perpendicular_offset - min_perp;
+            let layer_shift = -min_layer;
             for pos in &mut results[start..] {
                 if horizontal {
-                    pos.y += shift;
+                    pos.x += layer_shift;
+                    pos.y += perpendicular_shift;
                 } else {
-                    pos.x += shift;
+                    pos.x += perpendicular_shift;
+                    pos.y += layer_shift;
                 }
             }
             perpendicular_offset += max_perp - min_perp + spacing;
@@ -552,6 +567,113 @@ mod tests {
                         "components overlap in {direction:?}: {left_id} and {right_id}"
                     );
                 }
+            }
+        }
+    }
+
+    const DIRECTIONS: [Direction; 2] = [Direction::TopToBottom, Direction::LeftToRight];
+
+    /// A node's `(width, height)` from its extent along the layer axis and
+    /// its extent within its layer.
+    fn size_along(direction: Direction, layer: f64, in_layer: f64) -> (f64, f64) {
+        match direction {
+            Direction::LeftToRight => (layer, in_layer),
+            Direction::TopToBottom => (in_layer, layer),
+        }
+    }
+
+    /// A corner's `(layer axis, in-layer axis)` coordinates.
+    fn axes(direction: Direction, position: (f64, f64)) -> (f64, f64) {
+        match direction {
+            Direction::LeftToRight => position,
+            Direction::TopToBottom => (position.1, position.0),
+        }
+    }
+
+    fn spaced(direction: Direction) -> SugiyamaConfig {
+        SugiyamaConfig {
+            vertex_spacing: 60.0,
+            direction,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn cards_in_one_rank_do_not_overlap() {
+        // A centre read as a corner overlaps only when the larger node comes
+        // first in its rank, and crossing minimisation picks that order, so
+        // the larger extent goes to each of the two rank members in turn.
+        for direction in DIRECTIONS {
+            for (extent_2, extent_3) in [(300.0, 100.0), (100.0, 300.0)] {
+                // 2 and 3 share the rank after 1.
+                let sizes = vec![
+                    (1, size_along(direction, 100.0, 100.0)),
+                    (2, size_along(direction, 100.0, extent_2)),
+                    (3, size_along(direction, 100.0, extent_3)),
+                ];
+                let positions = pos_map(sugiyama_layout(
+                    &[(1, 2), (1, 3)],
+                    &sizes,
+                    &spaced(direction),
+                ));
+                let (layer_2, in_layer_2) = axes(direction, positions[&2]);
+                let (layer_3, in_layer_3) = axes(direction, positions[&3]);
+                assert_eq!(layer_2, layer_3, "2 and 3 share a rank in {direction:?}");
+
+                let ((first, first_extent), second) = if in_layer_2 < in_layer_3 {
+                    ((in_layer_2, extent_2), in_layer_3)
+                } else {
+                    ((in_layer_3, extent_3), in_layer_2)
+                };
+                assert!(
+                    second - (first + first_extent) >= 60.0 - 1e-9,
+                    "rank members closer than the spacing in {direction:?}: {positions:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn consecutive_ranks_do_not_overlap() {
+        for direction in DIRECTIONS {
+            let sizes = vec![
+                (1, size_along(direction, 600.0, 100.0)),
+                (2, size_along(direction, 100.0, 100.0)),
+            ];
+            let positions = pos_map(sugiyama_layout(&[(1, 2)], &sizes, &spaced(direction)));
+            let (layer_1, _) = axes(direction, positions[&1]);
+            let (layer_2, _) = axes(direction, positions[&2]);
+            assert!(
+                layer_2 - (layer_1 + 600.0) >= 60.0 - 1e-9,
+                "ranks closer than the spacing in {direction:?}: {positions:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn every_component_starts_at_0_on_the_layer_axis() {
+        for direction in DIRECTIONS {
+            // Two components whose first ranks differ in layer-axis extent.
+            let sizes = vec![
+                (1, size_along(direction, 600.0, 100.0)),
+                (2, size_along(direction, 100.0, 100.0)),
+                (3, size_along(direction, 100.0, 100.0)),
+                (4, size_along(direction, 300.0, 100.0)),
+            ];
+            let positions = pos_map(sugiyama_layout(
+                &[(1, 2), (3, 4)],
+                &sizes,
+                &spaced(direction),
+            ));
+            for component in [[1, 2], [3, 4]] {
+                let leading_edge = component
+                    .iter()
+                    .map(|id| axes(direction, positions[id]).0)
+                    .fold(f64::INFINITY, f64::min);
+                assert_eq!(
+                    leading_edge, 0.0,
+                    "component {component:?} in {direction:?}: {positions:?}"
+                );
             }
         }
     }
