@@ -1563,8 +1563,8 @@ mod tests {
 }
 
 impl crate::nodeeditor::LinkData {
-    /// Construct a colored link with no status override, no accent and a 2px
-    /// line width.
+    /// Construct a colored link with no status override, no accent, not dimmed
+    /// and a 2px line width.
     /// IDs must follow the editor domains: nonnegative link ID, positive pins.
     pub fn new(id: i32, start_pin_id: i32, end_pin_id: i32, color: Color) -> Self {
         Self {

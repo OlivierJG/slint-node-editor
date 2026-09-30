@@ -179,6 +179,8 @@ export component NodeEditor inherits FocusScope {
     /// The palette `LinkData.accent` indexes from 1. Bind it to the application's
     /// theme so link colours follow the theme with no push from Rust.
     in property <[color]> link-accent-colors: [];
+    /// The fraction of its alpha a `LinkData.dimmed` link keeps.
+    in property <float> dimmed-link-alpha: 0.25;
 
     // === Group data (set by application) ===
     /// One row per group. The editor renders a `GroupSheet` for each below
@@ -894,7 +896,7 @@ export component NodeEditor inherits FocusScope {
             // callback would evaluate it again, and a GeometryVersion bump
             // already re-evaluates every link in the graph.
             geometry: NodeEditorComputations.compute-link-path(link.start-pin-id, link.end-pin-id, GeometryVersion.version);
-            link-color: LinkColor.of(link, root.link-accent-colors);
+            link-color: LinkColor.of(link, root.link-accent-colors, root.dimmed-link-alpha);
             line-width: link.line-width > 0 ? link.line-width * 1px : 2px;
             selected: link.selected;
             hovered: root.hovered-link-id == link.id;
