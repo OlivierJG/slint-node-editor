@@ -54,6 +54,8 @@ in property <BoxSelectionModifier> box-selection-modifier: BoxSelectionModifier.
 
 // Link colours: the palette LinkData.accent indexes from 1 (see Link)
 in property <[color]> link-accent-colors: [];
+// The fraction of its alpha a dimmed link keeps (see Link)
+in property <float> dimmed-link-alpha: 0.25;
 
 // Minimap
 in property <bool> minimap-enabled: false;
@@ -288,6 +290,9 @@ palette falls through to the link's `color`. With `link-accent-colors` left at
 its empty default, `accent` has no effect. How the accent ranks against
 `status` and `color` is stated once, on the exported `LinkColor.of`, which
 `NodeEditor` applies to every link and a host drawing its own links can call.
+`LinkData.dimmed`, default `false`, fades a link to `NodeEditor`'s
+`dimmed-link-alpha` over whatever colour that rule gives it; `LinkColor.of`
+states how.
 
 **`LinkPath`:**
 ```slint

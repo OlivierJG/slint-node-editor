@@ -15,6 +15,9 @@
   links. A new field on `LinkData`: a Rust struct literal naming every field
   must add it or end in `..Default::default()`; `LinkData::new`'s signature and
   the link it builds are unchanged.
+- `LinkData.dimmed` draws a link faded to `NodeEditor.dimmed-link-alpha`, over
+  whatever colour its status, accent or `color` gives it. A new field on
+  `LinkData`, defaulting to `false`.
 
 ## 1.0.1 — 2026-09-17
 
