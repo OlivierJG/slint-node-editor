@@ -48,6 +48,7 @@ fn harness() -> MinimalTestHarness {
                 line_width: 2.0,
                 status: -1,
                 selected: false,
+                ..Default::default()
             },
             LinkData {
                 id: 2,
@@ -57,6 +58,7 @@ fn harness() -> MinimalTestHarness {
                 line_width: 2.0,
                 status: -1,
                 selected: false,
+                ..Default::default()
             },
         ],
         vec![GroupData {
