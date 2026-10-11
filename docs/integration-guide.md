@@ -2,6 +2,10 @@
 
 [README](../README.md) · [Component reference](component-reference.md)
 
+The quick start uses the published **1.0.1** API. Sections marked **Unreleased**
+require a checkout of `main`; they are not available in the published crate.
+The component reference describes `main`.
+
 The quick start is a complete downstream crate, compiled outside this workspace
 by [`smoke/run.sh packaged`](../smoke/run.sh). Copy its four application files:
 
@@ -211,7 +215,8 @@ remain caller-validated APIs.
 ### Viewport size and transform
 
 `NodeEditorComputations.viewport-changed(zoom, pan-x, pan-y)` reports pan and
-zoom changes. `NodeEditorComputations.viewport-resized(width, height)` reports
+zoom changes. The **unreleased**
+`NodeEditorComputations.viewport-resized(width, height)` callback reports
 changes to the editor's own dimensions in logical pixels. Listen to both when
 tracking the visible world rectangle; `request-grid-update` is only a request
 to regenerate the grid and is unnecessary for a host without one.
@@ -253,9 +258,11 @@ call to `setup.controller().set_viewport(zoom, pan_x, pan_y)`.
 
 `LinkData::default()` has Slint's zero-valued status (idle), which overrides its
 color. Use `LinkData::new(id, output, input, color)` for a 2px colored link with
-no status override and no accent. Link box selection uses endpoint inclusion:
+no status override. Link box selection uses endpoint inclusion:
 either endpoint inside or on the box selects the link; a crossing curve whose
 endpoints are both outside is omitted.
+
+### Link accents and dimming (Unreleased)
 
 To colour links from your theme, bind `NodeEditor.link-accent-colors` to your
 theme's colours and set each link's `accent` to a 1-based index into it. A link
@@ -268,10 +275,14 @@ editor := NodeEditor {
 }
 ```
 
-An `accent` of 0, the default, or one outside the palette leaves the link its
-`color`.
+An `accent` of 0, the default, or one outside the palette falls back to the
+link's `color` when no known status overrides it. Set `status: -1` to use
+the accent or explicit colour. Set `dimmed: true` to multiply the resolved
+colour's alpha by `NodeEditor.dimmed-link-alpha` (default 0.25), preserving
+its hue. The [custom-shapes example](../examples/custom-shapes) demonstrates
+theme changes and dimming links outside a chosen node's focus.
 
-### Groups
+### Groups (Unreleased)
 
 A group is model data like selection: membership is the `group_id` on each
 node row (0 for none), and each group is a `GroupData` row with authoritative

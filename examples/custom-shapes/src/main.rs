@@ -53,7 +53,7 @@ fn generate_manhattan_path(start_x: f32, start_y: f32, end_x: f32, end_y: f32) -
     }
 }
 
-fn main() {
+fn build_app() -> MainWindow {
     let window = MainWindow::new().unwrap();
     let w = window.as_weak();
 
@@ -90,6 +90,7 @@ fn main() {
             line_width: 2.0,
             status: -1,
             selected: false,
+            accent: 1,
             ..Default::default()
         },
         LinkData {
@@ -100,6 +101,7 @@ fn main() {
             line_width: 3.0, // Thicker link
             status: -1,
             selected: false,
+            accent: 2,
             ..Default::default()
         },
     ]));
@@ -208,12 +210,72 @@ fn main() {
         }
     });
 
-    window.run().unwrap();
+    // Focus is host policy. Dimming is applied over the current palette colour.
+    window.on_focus_node_a({
+        let links = links.clone();
+        move |focused| {
+            for row in 0..links.row_count() {
+                if let Some(mut link) = links.row_data(row) {
+                    link.dimmed = focused && link.start_pin_id != 3;
+                    links.set_row_data(row, link);
+                }
+            }
+        }
+    });
+
+    window
+}
+
+fn main() {
+    build_app().run().unwrap();
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn focus_controls_dim_other_links_without_covering_node_gestures() {
+        i_slint_backend_testing::init_no_event_loop();
+        let window = build_app();
+        window.invoke_focus_node_a(true);
+        let links = window.get_links();
+        assert!(!links.row_data(0).unwrap().dimmed);
+        assert!(links.row_data(1).unwrap().dimmed);
+        assert_eq!(links.row_data(0).unwrap().accent, 1);
+        assert_eq!(links.row_data(1).unwrap().accent, 2);
+        window.invoke_focus_node_a(false);
+        assert!(links.iter().all(|link| !link.dimmed));
+
+        // The toolbar is outside the editor, including Node C's lower body,
+        // which the former bottom-left overlay covered.
+        use slint::{
+            platform::{PointerEventButton, WindowEvent},
+            ComponentHandle, LogicalPosition,
+        };
+        window.show().unwrap();
+        slint::platform::update_timers_and_animations();
+        slint::platform::update_timers_and_animations();
+        assert!((window.get_height_() - 544.0).abs() < 0.01);
+        for event in [
+            WindowEvent::PointerPressed {
+                position: LogicalPosition::new(175.0, 531.0),
+                button: PointerEventButton::Left,
+            },
+            WindowEvent::PointerMoved {
+                position: LogicalPosition::new(200.0, 551.0),
+            },
+            WindowEvent::PointerReleased {
+                position: LogicalPosition::new(200.0, 551.0),
+                button: PointerEventButton::Left,
+            },
+        ] {
+            window.window().dispatch_event(event);
+            slint::platform::update_timers_and_animations();
+        }
+        let node_c = window.get_nodes().row_data(2).unwrap();
+        assert_eq!((node_c.x, node_c.y), (125.0, 420.0));
+    }
 
     #[test]
     fn orthogonal_picker_uses_the_rendered_segments() {

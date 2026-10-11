@@ -17,6 +17,9 @@ cargo run -p advanced
 # Build and run the minimal example
 cargo run -p minimal
 
+# Build and run the configuration example (geometry/configuration tests)
+cargo run -p configuration
+
 # Build and run the custom shapes example
 cargo run -p custom-shapes
 
@@ -47,6 +50,7 @@ cargo check --workspace
 | `src/lib.rs` | Library entry point (Rust) |
 | `node-editor.slint` | Generic Slint components (NodeEditor, Pin, Link, Minimap, BaseGroup) |
 | `src/groups.rs` | Node groups: membership, movement rule, collapse, bounds |
+| `examples/configuration/` | Public geometry/configuration demonstration and regression tests |
 | `examples/groups/` | Node groups demo: create, drag, collapse, refit, dissolve |
 | `examples/advanced/ui/pin_encoding.slint` | Application-specific pin ID encoding scheme |
 | `examples/advanced/ui/ui.slint` | Application-specific UI (Node component, data structs, main window) |
@@ -73,10 +77,11 @@ cargo check --workspace
 
 **Callback-based computation**: The Slint UI delegates expensive operations to Rust via callbacks (e.g., `compute-pin-at`).
 
-**Level of Detail (LOD)**: NodeEditor supports configurable LOD thresholds for zoom-dependent rendering:
+**Level of Detail (LOD)**: NodeEditor exposes suggested thresholds that hosts
+pass to node delegates; it does not apply LOD or minimum sizing itself:
 - `lod-full-threshold: 0.5` - Zoom above which nodes render full detail
 - `lod-simplified-threshold: 0.25` - Zoom above which nodes render simplified detail
-- Below simplified threshold: nodes render as minimal colored boxes
+- Below simplified threshold: example nodes render as minimal colored boxes
 - See `examples/zoom-stress-test` for implementation patterns
 
 ## Data Models (in examples/advanced/src/main.rs)
@@ -130,8 +135,9 @@ The library provides Rust helpers to reduce boilerplate:
 **GeometryTracker** - Convenience wrapper for geometry cache setup:
 ```rust
 let tracker = GeometryTracker::new();
-window.on_node_rect_changed(tracker.node_rect_callback());
-window.on_pin_position_changed(tracker.pin_position_callback());
+let report_node = tracker.node_rect_callback();
+let report_pin = tracker.pin_position_callback();
+// Wire these to geometry reports in a low-level integration.
 let cache = tracker.cache(); // Use for hit testing, etc.
 ```
 

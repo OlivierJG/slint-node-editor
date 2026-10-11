@@ -78,8 +78,10 @@ export component MainWindow inherits Window {
     in-out property <length> pan-x <=> editor.pan-x;
     in-out property <length> pan-y <=> editor.pan-y;
 
-    out property <float> width_: self.width / 1px;
-    out property <float> height_: self.height / 1px;
+    out property <float> width_: editor.width / 1px;
+    out property <float> height_: editor.height / 1px;
+    out property <float> min-zoom: editor.min-zoom;
+    out property <float> max-zoom: editor.max-zoom;
 
     callback layout-requested();
     callback scramble-requested();
@@ -111,6 +113,8 @@ export component MainWindow inherits Window {
         }
 
         editor := NodeEditor {
+            // This graph needs an overview below the normal editing minimum.
+            min-zoom: 0.001;
             for data in root.nodes: SimpleNode {
                 node-id: data.id;
                 title: data.title;

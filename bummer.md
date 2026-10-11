@@ -55,3 +55,23 @@ Next time: Anchor literal patches on a preceding token that only literals have (
 Revisit when: The patch is done by a syntax-aware tool (rust-analyzer structured edit) instead of text matching.
 Cost: One corrupted file, one aborted edit script, three extra tool calls.
 Scope: global-candidate     Status: active
+
+## 2026-10-10 · Check struct exhaustiveness before declaring field additions breaking · #release #api #src/layout.rs
+Situation: Assessing whether current main can be released as 1.1 after adding rank alignment and link styling.
+Tried: Classified both SugiyamaConfig.rank_alignment and generated LinkData fields as breaking public struct additions without inspecting the released declaration's attributes.
+Outcome: SugiyamaConfig was already #[non_exhaustive] in v1.0.1; external exhaustive literals were already forbidden, so the rank_alignment addition does not break them. The LinkData concern remains separate.
+Evidence: 2026-10-10 comparison of git show v1.0.1:src/layout.rs with current src/layout.rs; corrected the earlier assessment to the user.
+Next time: Inspect the released type's attributes and external construction contract before classifying an added field. Assess generated types independently.
+Revisit when: A different API change affects existing constructors, trait implementations, or field behavior rather than exhaustive construction.
+Cost: Incorrect release-planning claim and a follow-up correction.
+Scope: project     Status: active
+
+## 2026-10-10 · Growing an overlay can cover example nodes · #examples/custom-shapes #ui #review
+Situation: Adding palette and focus controls to the custom-shapes example.
+Tried: Expanded the floating panel and moved it to the bottom-left without checking it against the initial node positions.
+Outcome: Claude's source review identified an overlap with Node C: the panel's 20–330 by 454–584 screen rectangle intersected the node's 100–250 by 400–500 rectangle at the initial viewport. The replacement uses a separate toolbar and the editor's actual dimensions.
+Evidence: Read-only Claude review in /tmp/slint-docs-claude-review.txt on 2026-10-10, item 1; rectangles follow directly from the UI and initial model coordinates, not a native screenshot.
+Next time: Check initial control and node rectangles after changing overlay size or placement. A separate layout row is a verified structural way to keep controls outside the editor viewport.
+Revisit when: The overlay deliberately occludes content or the example has a defined reserved area under every viewport transform.
+Cost: One implemented and compiled panel layout replaced after review.
+Scope: project     Status: active

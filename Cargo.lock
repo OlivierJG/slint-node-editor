@@ -619,6 +619,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "configuration"
+version = "1.0.0"
+dependencies = [
+ "i-slint-backend-testing",
+ "slint",
+ "slint-build",
+ "slint-node-editor",
+]
+
+[[package]]
 name = "const-field-offset"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -768,6 +778,7 @@ checksum = "f27ae1dd37df86211c42e150270f82743308803d90a6f6e6651cd730d5e1732f"
 name = "custom-shapes"
 version = "1.0.0"
 dependencies = [
+ "i-slint-backend-testing",
  "slint",
  "slint-build",
  "slint-node-editor",
@@ -2345,7 +2356,6 @@ dependencies = [
 name = "minimal"
 version = "1.0.0"
 dependencies = [
- "i-slint-backend-testing",
  "slint",
  "slint-build",
  "slint-node-editor",
@@ -3934,6 +3944,7 @@ dependencies = [
 name = "sugiyama"
 version = "1.0.0"
 dependencies = [
+ "i-slint-backend-testing",
  "slint",
  "slint-build",
  "slint-node-editor",
@@ -3943,6 +3954,7 @@ dependencies = [
 name = "sugiyama-stress-test"
 version = "1.0.0"
 dependencies = [
+ "i-slint-backend-testing",
  "slint",
  "slint-build",
  "slint-node-editor",

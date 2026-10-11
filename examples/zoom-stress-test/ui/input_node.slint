@@ -240,7 +240,7 @@ export component InputNode inherits BaseNode {
         }
     }
 
-    // === Output pin (visible at all LOD levels) ===
+    // === Output pin (hidden at minimal LOD) ===
     output-pin := Pin {
         x: parent.width - root.content-padding - root.base-pin-size;
         y: parent.height / 2 - root.base-pin-size / 2;

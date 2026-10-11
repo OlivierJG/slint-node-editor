@@ -12,6 +12,7 @@ connections, embedded controls, animated links, and automatic layout.
 ## Features
 
 - Node dragging, multi-selection, and box selection.
+- Node groups with movable, collapsible backing sheets (unreleased).
 - Interactive connections with application-defined pin compatibility.
 - Pan, zoom, grid, and minimap.
 - Custom node shapes, embedded Slint controls, and link styling and routing.
@@ -62,11 +63,16 @@ Start with its four files:
 - [ui/app.slint](smoke/downstream/ui/app.slint)
 - [src/main.rs](smoke/downstream/src/main.rs)
 
-The 1.0.1 release uses the registry dependency:
+The published 1.0.1 release uses the registry dependency:
 
 ```toml
 slint-node-editor = "1.0.1"
 ```
+
+The documentation on `main` also covers unreleased groups, viewport resize
+notifications, link palettes/dimming, corrected layout coordinates, and rank
+alignment. Published 1.0.1 returns node centres despite documenting corners. Those features
+require a checkout until the next release; the guides mark them accordingly.
 
 The integration has three parts:
 
@@ -85,20 +91,23 @@ Run any example with `cargo run -p <name>` from the repository root.
 | Example | Demonstrates |
 |---|---|
 | [minimal](examples/minimal) | Basic nodes, links, and standard setup helpers |
+| [configuration](examples/configuration) | Geometry reporting, grid/curve settings, and host-side LOD configuration |
 | [advanced](examples/advanced) | Custom nodes, embedded controls, minimap, and application policies |
 | [animated-links](examples/animated-links) | Growing links and glow effects |
-| [custom-shapes](examples/custom-shapes) | Custom link routing and reactive styling |
+| [custom-shapes](examples/custom-shapes) | Custom routing, theme palettes, and focus dimming |
 | [pin-compatibility](examples/pin-compatibility) | Compatibility checks and connection feedback |
 | [zoom-stress-test](examples/zoom-stress-test) | Zoom-dependent node detail and widget scaling |
 | [edge-fade](examples/edge-fade) | Viewport edge styling |
 | [groups](examples/groups) | Node groups: backing sheets that move, collapse and refit around their members |
-| [sugiyama](examples/sugiyama) | Automatic graph layout |
+| [sugiyama](examples/sugiyama) | Automatic layout with unequal node sizes and configurable rank alignment |
 | [sugiyama-stress-test](examples/sugiyama-stress-test) | Layout with larger graphs |
 
 ![Sugiyama example arranging an eight-node graph from input to output](https://raw.githubusercontent.com/tilladam/slint-node-editor/v1.0.0/docs/media/automatic-layout.png)
 
 In `sugiyama`, use **Scramble** to rearrange the nodes and **Auto Layout** to
-restore a layered graph.
+restore a layered graph. Choose **Centre** or **Start** alignment to compare
+how differently sized nodes line up within a rank; changing the choice applies
+the layout immediately.
 
 ## Limitations
 

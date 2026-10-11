@@ -28,7 +28,7 @@ The core logic resides in the `TypeCompatibilityValidator` struct which implemen
 
 | Source Type | Compatible Targets |
 | :--- | :--- |
-| **Execute** | Execute |
+| **Execute** | Execute, Any |
 | **Integer** | Integer, Float, String, Any |
 | **Float** | Float, String, Any |
 | **String** | String, Any |
@@ -40,7 +40,7 @@ The core logic resides in the `TypeCompatibilityValidator` struct which implemen
 ### 3. Visual Feedback
 The UI provides immediate feedback during link creation:
 -   **Color Coding:** Pins and links are colored by type (e.g., Red for Boolean, Cyan for Integer).
--   **Validation Indicators:** A green checkmark appears on compatible target pins when dragging a link, guiding the user to valid connections.
+-   **Validation Indicators:** A green checkmark appears on the compatible pin under the pointer during a link drag.
 
 ## Code Highlights
 

@@ -8,7 +8,7 @@ import {
     NodeEditorComputations,
     GeometryVersion,
 } from "@nodeeditor";
-import { Button } from "std-widgets.slint";
+import { Button, ComboBox } from "std-widgets.slint";
 
 export struct NodeData {
     id: int,
@@ -17,13 +17,17 @@ export struct NodeData {
     y: float,
     /// Selection lives in the application; it projects the flag into this row.
     selected: bool,
+    width: float,
+    height: float,
 }
 export { LinkData, NodeEditorInternalCallbacks, NodeEditorComputations, GeometryVersion }
 
 component SimpleNode inherits BaseNode {
     in property <string> title: "Node";
-    node-width: 120px;
-    node-height: 60px;
+    in property <float> model-width;
+    in property <float> model-height;
+    node-width: model-width * 1px;
+    node-height: model-height * 1px;
 
     Rectangle {
         width: 100%;
@@ -80,8 +84,11 @@ export component MainWindow inherits Window {
     in-out property <length> pan-x <=> editor.pan-x;
     in-out property <length> pan-y <=> editor.pan-y;
 
-    out property <float> width_: self.width / 1px;
-    out property <float> height_: self.height / 1px;
+    out property <float> width_: editor.width / 1px;
+    out property <float> height_: editor.height / 1px;
+    out property <float> min-zoom: editor.min-zoom;
+    out property <float> max-zoom: editor.max-zoom;
+    in-out property <bool> align-start: false;
 
     callback layout-requested();
     callback scramble-requested();
@@ -97,6 +104,15 @@ export component MainWindow inherits Window {
             height: 40px;
             spacing: 8px;
 
+            Text { text: "Rank alignment:"; vertical-alignment: center; }
+            ComboBox {
+                model: ["Centre", "Start"];
+                current-value: "Centre";
+                selected(value) => {
+                    root.align-start = value == "Start";
+                    root.layout-requested();
+                }
+            }
             Button {
                 text: "Auto Layout";
                 clicked => {
@@ -118,6 +134,8 @@ export component MainWindow inherits Window {
             for data in root.nodes: SimpleNode {
                 node-id: data.id;
                 title: data.title;
+                model-width: data.width;
+                model-height: data.height;
                 world-x: data.x * 1px;
                 world-y: data.y * 1px;
                 selected: data.selected;

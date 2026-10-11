@@ -2,7 +2,7 @@
 //
 // This example tests widget scaling behavior at various zoom levels.
 // It contains three nodes with complex Slint controls to verify:
-// - Controls remain usable at all zoom levels
+// - Widgets are available at full detail; summaries replace them at low zoom
 // - Font sizes stay readable and crisp
 // - Hit targets are adequate for interaction
 // - Layout consistency across zoom levels
@@ -223,7 +223,7 @@ export component MainWindow inherits Window {
             }
 
             Text {
-                text: "Ctrl+scroll to zoom (0.1x - 3.0x)";
+                text: "Ctrl/⌘+scroll to zoom (0.1x - 3.0x)";
                 color: #aaa;
                 font-size: 11px;
             }
@@ -235,7 +235,7 @@ export component MainWindow inherits Window {
             }
 
             Text {
-                text: "Test widget usability at all zoom levels";
+                text: "Zoom in to edit; zoom out for summaries";
                 color: #888;
                 font-size: 10px;
             }

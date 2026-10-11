@@ -51,7 +51,7 @@ fn build_node_index(nodes: &VecModel<NodeData>) -> HashMap<i32, usize> {
         .collect()
 }
 
-fn main() {
+fn build_app() -> MainWindow {
     let window = MainWindow::new().unwrap();
     let w = window.as_weak();
 
@@ -150,10 +150,10 @@ fn main() {
                     let graph_w = (max_x - min_x) + margin * 2.0;
                     let graph_h = (max_y - min_y) + margin * 2.0;
                     let viewport_w = w.get_width_();
-                    let viewport_h = w.get_height_() - 40.0;
+                    let viewport_h = w.get_height_();
                     let zoom = (viewport_w / graph_w)
                         .min(viewport_h / graph_h)
-                        .clamp(0.1, 3.0);
+                        .clamp(w.get_min_zoom(), w.get_max_zoom());
                     w.set_zoom(zoom);
                     w.set_pan_x(-(min_x - margin) * zoom);
                     w.set_pan_y(-(min_y - margin) * zoom);
@@ -184,5 +184,38 @@ fn main() {
 
     wire_node_editor!(window, setup);
     wire_selection!(window, setup, nodes);
-    window.run().unwrap();
+    window
+}
+
+fn main() {
+    build_app().run().unwrap();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use slint::ComponentHandle;
+
+    #[test]
+    fn auto_layout_fits_all_2500_nodes_in_the_editor_viewport() {
+        i_slint_backend_testing::init_no_event_loop();
+        let window = build_app();
+        window.show().unwrap();
+        slint::platform::update_timers_and_animations();
+        window.invoke_layout_requested();
+        let zoom = window.get_zoom();
+        assert!(
+            zoom < 0.1,
+            "the graph requires an overview below the editing minimum"
+        );
+        assert!(zoom >= window.get_min_zoom());
+        let nodes = window.get_nodes();
+        assert_eq!(nodes.row_count(), 2500);
+        for node in nodes.iter() {
+            assert!(node.x * zoom + window.get_pan_x() >= 0.0);
+            assert!(node.y * zoom + window.get_pan_y() >= 0.0);
+            assert!((node.x + 120.0) * zoom + window.get_pan_x() <= window.get_width_() + 0.01);
+            assert!((node.y + 60.0) * zoom + window.get_pan_y() <= window.get_height_() + 0.01);
+        }
+    }
 }

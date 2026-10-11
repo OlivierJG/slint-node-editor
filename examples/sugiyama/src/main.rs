@@ -5,7 +5,7 @@ use std::rc::Rc;
 use slint::{Color, Model, ModelRc, SharedString, VecModel};
 use slint_node_editor::{
     sugiyama_layout, wire_node_editor, wire_selection, Direction, GraphLogic, LinkData, LinkPath,
-    MovableNode, NodeEditorSetup, SugiyamaConfig,
+    MovableNode, NodeEditorSetup, RankAlignment, SugiyamaConfig,
 };
 
 slint::include_modules!();
@@ -51,7 +51,7 @@ fn build_node_index(nodes: &VecModel<NodeData>) -> HashMap<i32, usize> {
         .collect()
 }
 
-fn main() {
+fn build_app() -> MainWindow {
     let window = MainWindow::new().unwrap();
     let w = window.as_weak();
 
@@ -67,43 +67,55 @@ fn main() {
             id: 1,
             title: SharedString::from("Input"),
             x: 50.0,
-            y: 50.0,
+            y: 20.0,
             selected: false,
+            width: 160.0,
+            height: 80.0,
         },
         NodeData {
             id: 2,
             title: SharedString::from("Parse"),
             x: 50.0,
-            y: 120.0,
+            y: 105.0,
             selected: false,
+            width: 200.0,
+            height: 60.0,
         },
         NodeData {
             id: 3,
             title: SharedString::from("Validate"),
             x: 50.0,
-            y: 190.0,
+            y: 170.0,
             selected: false,
+            width: 120.0,
+            height: 80.0,
         },
         NodeData {
             id: 4,
             title: SharedString::from("Transform"),
             x: 50.0,
-            y: 260.0,
+            y: 255.0,
             selected: false,
+            width: 160.0,
+            height: 60.0,
         },
         NodeData {
             id: 5,
             title: SharedString::from("Filter"),
             x: 50.0,
-            y: 330.0,
+            y: 320.0,
             selected: false,
+            width: 200.0,
+            height: 80.0,
         },
         NodeData {
             id: 6,
             title: SharedString::from("Merge"),
             x: 50.0,
-            y: 400.0,
+            y: 405.0,
             selected: false,
+            width: 120.0,
+            height: 60.0,
         },
         NodeData {
             id: 7,
@@ -111,13 +123,17 @@ fn main() {
             x: 50.0,
             y: 470.0,
             selected: false,
+            width: 160.0,
+            height: 80.0,
         },
         NodeData {
             id: 8,
             title: SharedString::from("Output"),
             x: 50.0,
-            y: 540.0,
+            y: 555.0,
             selected: false,
+            width: 200.0,
+            height: 60.0,
         },
     ]));
     window.set_nodes(ModelRc::from(nodes.clone()));
@@ -161,14 +177,22 @@ fn main() {
         let dag_edges = dag_edges.clone();
         let w = w.clone();
         move || {
+            let Some(window) = w.upgrade() else {
+                return;
+            };
             let node_sizes: Vec<(i32, (f64, f64))> = (0..nodes.row_count())
                 .filter_map(|i| nodes.row_data(i))
-                .map(|n| (n.id, (120.0, 60.0)))
+                .map(|n| (n.id, (f64::from(n.width), f64::from(n.height))))
                 .collect();
 
             let mut config = SugiyamaConfig::default();
             config.vertex_spacing = 60.0;
             config.direction = Direction::LeftToRight;
+            config.rank_alignment = if window.get_align_start() {
+                RankAlignment::Start
+            } else {
+                RankAlignment::Center
+            };
 
             let positions = sugiyama_layout(&dag_edges, &node_sizes, &config);
 
@@ -193,8 +217,8 @@ fn main() {
                     if let Some(n) = nodes.row_data(i) {
                         min_x = min_x.min(n.x);
                         min_y = min_y.min(n.y);
-                        max_x = max_x.max(n.x + 120.0);
-                        max_y = max_y.max(n.y + 60.0);
+                        max_x = max_x.max(n.x + n.width);
+                        max_y = max_y.max(n.y + n.height);
                     }
                 }
                 if min_x < max_x {
@@ -202,10 +226,10 @@ fn main() {
                     let graph_w = (max_x - min_x) + margin * 2.0;
                     let graph_h = (max_y - min_y) + margin * 2.0;
                     let viewport_w = w.get_width_();
-                    let viewport_h = w.get_height_() - 40.0; // button bar
+                    let viewport_h = w.get_height_();
                     let zoom = (viewport_w / graph_w)
                         .min(viewport_h / graph_h)
-                        .clamp(0.1, 3.0);
+                        .clamp(w.get_min_zoom(), w.get_max_zoom());
                     w.set_zoom(zoom);
                     w.set_pan_x(-(min_x - margin) * zoom);
                     w.set_pan_y(-(min_y - margin) * zoom);
@@ -240,5 +264,48 @@ fn main() {
     wire_node_editor!(window, setup);
     wire_selection!(window, setup, nodes);
 
-    window.run().unwrap();
+    window
+}
+
+fn main() {
+    build_app().run().unwrap();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use slint::ComponentHandle;
+
+    #[test]
+    fn alignment_choice_uses_model_sizes_and_keeps_the_graph_in_view() {
+        i_slint_backend_testing::init_no_event_loop();
+        let window = build_app();
+        window.show().unwrap();
+        slint::platform::update_timers_and_animations();
+        window.invoke_layout_requested();
+        let rows = window.get_nodes();
+        let parse = rows.row_data(1).unwrap();
+        let validate = rows.row_data(2).unwrap();
+        // These nodes share a rank, but have different widths.
+        assert_ne!(parse.width, validate.width);
+        assert!((parse.x + parse.width / 2.0 - validate.x - validate.width / 2.0).abs() < 0.01);
+        assert!((parse.x - validate.x).abs() > 1.0);
+
+        window.set_align_start(true);
+        window.invoke_layout_requested();
+        let parse = rows.row_data(1).unwrap();
+        let validate = rows.row_data(2).unwrap();
+        assert!((parse.x - validate.x).abs() < 0.01);
+        let zoom = window.get_zoom();
+        for node in rows.iter() {
+            assert!(node.x * zoom + window.get_pan_x() >= 0.0);
+            assert!(node.y * zoom + window.get_pan_y() >= 0.0);
+            assert!(
+                (node.x + node.width) * zoom + window.get_pan_x() <= window.get_width_() + 0.01
+            );
+            assert!(
+                (node.y + node.height) * zoom + window.get_pan_y() <= window.get_height_() + 0.01
+            );
+        }
+    }
 }

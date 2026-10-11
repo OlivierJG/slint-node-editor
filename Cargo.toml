@@ -45,6 +45,7 @@ members = [
     "integration-tests",
     "examples/advanced",
     "examples/minimal",
+    "examples/configuration",
     "examples/custom-shapes",
     "examples/animated-links",
     "examples/pin-compatibility",

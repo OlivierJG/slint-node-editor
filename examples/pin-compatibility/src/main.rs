@@ -4,7 +4,7 @@
 //! Two nodes with 8 pin types each, showing which types can connect.
 //!
 //! Type Compatibility Matrix:
-//! - Execute: Only connects to Execute (flow control)
+//! - Execute: Connects to Execute or Any (flow control)
 //! - Integer: Connects to Integer, Float, String, Any
 //! - Float: Connects to Float, String, Any
 //! - String: Connects to String, Any
@@ -276,7 +276,7 @@ fn build_app() -> MainWindow {
     println!("\n=== Pin Type Compatibility Matrix ===");
     println!("Try connecting pins to see validation in action!\n");
     println!("Compatible connections:");
-    println!("  Execute  -> Execute only");
+    println!("  Execute  -> Execute, Any");
     println!("  Integer  -> Integer, Float, String, Any");
     println!("  Float    -> Float, String, Any");
     println!("  String   -> String, Any");

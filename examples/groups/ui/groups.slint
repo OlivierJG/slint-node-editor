@@ -212,7 +212,7 @@ export component MainWindow inherits Window {
         x: 12px;
         y: root.height - self.height - 12px;
         width: 300px;
-        height: 178px;
+        height: 198px;
         background: #00000090;
         border-radius: 8px;
         VerticalLayout {
@@ -221,11 +221,12 @@ export component MainWindow inherits Window {
             Text { text: "Groups"; color: #fff; font-size: 14px; font-weight: 600; }
             Text { text: "Select nodes, then G: group them under a sheet"; color: #ccc; font-size: 12px; }
             Text { text: "Drag the sheet: its members move with it"; color: #ccc; font-size: 12px; }
-            Text { text: "Drag a node out, then F: the sheet refits"; color: #ccc; font-size: 12px; }
+            Text { text: "Drag a member: the sheet refits automatically"; color: #ccc; font-size: 12px; }
             Text { text: "▾ on the sheet or C: collapse / expand"; color: #ccc; font-size: 12px; }
             Text { text: "L: take selected nodes out of their group"; color: #ccc; font-size: 12px; }
             Text { text: "Shift+click: extend across nodes and sheets"; color: #ccc; font-size: 12px; }
-            Text { text: "Ctrl+drag: marquee   Middle drag: pan   Scroll: zoom"; color: #ccc; font-size: 12px; }
+            Text { text: "Ctrl+drag: marquee   Middle drag: pan"; color: #ccc; font-size: 12px; }
+            Text { text: "Scroll: pan   Ctrl/⌘+scroll: zoom"; color: #ccc; font-size: 12px; }
         }
     }
 }
