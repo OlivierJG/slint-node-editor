@@ -749,6 +749,15 @@ export component NodeEditor inherits FocusScope {
                 accept
             }
 
+            // A pointer leaving the canvas for a node drawn above it, or for
+            // outside the window, sends this area no move, so the wire it
+            // last hovered would stay hovered.
+            changed has-hover => {
+                if !self.has-hover {
+                    root.update-link-hover(-1);
+                }
+            }
+
             pointer-event(event) => {
                 if event.kind == PointerEventKind.down {
                     NodeEditorInternalCallbacks.take-editor-focus();

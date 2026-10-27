@@ -447,3 +447,21 @@ fn node_stays_hovered_over_its_own_content() {
         assert_eq!(hover.get_hovered_node_id(), 1, "{surface:?}");
     }
 }
+
+#[test]
+fn a_hovered_link_is_released_when_the_pointer_leaves_the_canvas() {
+    let harness = MinimalTestHarness::new();
+    realize(&harness);
+    for leave in [Surface::Node, Surface::EmbeddedControl] {
+        let (x, y) = surface_point(&harness, Surface::Link);
+        harness.mouse_move(x, y);
+        assert!(harness.window.get_hovered_link_id() >= 0, "the wire under the pointer");
+        let (x, y) = surface_point(&harness, leave);
+        harness.mouse_move(x, y);
+        assert_eq!(harness.window.get_hovered_link_id(), -1, "{leave:?}");
+    }
+    let (x, y) = surface_point(&harness, Surface::Link);
+    harness.mouse_move(x, y);
+    harness.pointer_exit();
+    assert_eq!(harness.window.get_hovered_link_id(), -1, "out of the window");
+}

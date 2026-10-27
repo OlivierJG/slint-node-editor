@@ -181,6 +181,7 @@ export component MainWindow inherits Window {
     // Link picking is a host callback; standard computations use the exported
     // NodeEditorComputations global.
     callback compute-link-at <=> editor.compute-link-at;
+    out property <int> hovered-link-id: editor.hovered-link-id;
 
     // Function to refresh links after geometry is reported
     public function refresh-links() {
