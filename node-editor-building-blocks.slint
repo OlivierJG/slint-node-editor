@@ -1176,9 +1176,8 @@ export component BaseNode inherits Rectangle {
     // === Hover ===
     // Exposed so subclasses can react to hover directly (e.g. show pills/badges),
     // and aggregated to NodeEditor.hovered-node-id via the HoverState global.
-    // drag-area owns pointer events for the whole node, so its has-hover is the
-    // authoritative hover signal (a subclass can't layer its own TouchArea
-    // without swallowing selection/drag).
+    // drag-area holds the subclass's content, so its has-hover stays true over
+    // every child inside the node's rect.
     out property <bool> hovered: drag-area.has-hover;
     changed hovered => {
         // Guard against node-id == 0 (unbound) — same convention as geometry reporting.
@@ -1239,6 +1238,10 @@ export component BaseNode inherits Rectangle {
         item-double-clicked => {
             NodeEditorEvents.node-double-clicked(node-id);
         }
+
+        // A subclass's content sits inside the gesture, so hovering it is
+        // hovering the node, and a press no child takes still selects or drags.
+        @children
     }
 }
 

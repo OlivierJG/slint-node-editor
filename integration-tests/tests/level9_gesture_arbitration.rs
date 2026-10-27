@@ -434,3 +434,16 @@ fn retiring_a_pin_or_its_node_cancels_a_forwarded_marquee() {
         assert!(harness.tracker.link_requested.borrow().is_empty());
     }
 }
+
+#[test]
+fn node_stays_hovered_over_its_own_content() {
+    let harness = MinimalTestHarness::new();
+    realize(&harness);
+    let hover = harness.window.global::<common::harness::HoverState>();
+    for surface in [Surface::Node, Surface::EmbeddedControl, Surface::Pin] {
+        let (x, y) = surface_point(&harness, surface);
+        harness.mouse_move(x, y);
+        harness.pump_events();
+        assert_eq!(hover.get_hovered_node_id(), 1, "{surface:?}");
+    }
+}
