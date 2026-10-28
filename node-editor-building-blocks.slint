@@ -856,6 +856,10 @@ export component Link inherits Path {
 component DragGesture inherits TouchArea {
     /// The owner's current selection flag, latched at press time.
     in property <bool> selected: false;
+    /// The owner's `screen-x` / `screen-y`. This area sits at the owner's
+    /// top-left, so they place it in the editor's space.
+    in property <length> owner-screen-x: 0px;
+    in property <length> owner-screen-y: 0px;
     /// Off, a move past the threshold starts no drag: no drag callback and
     /// no offset. It does what a drag on empty canvas does instead, and the
     /// release is no click, so it applies no deferred selection.
@@ -881,18 +885,20 @@ component DragGesture inherits TouchArea {
 
     property <bool> shift-held: false;
     property <length> drag-threshold: 5px;
-    property <length> start-abs-x: 0px;
-    property <length> start-abs-y: 0px;
+    property <length> press-x: 0px;
+    property <length> press-y: 0px;
     property <bool> was-selected-on-press: false;
     /// Whether this press emitted a selection intent.
     property <bool> selection-intent-sent: false;
     /// The pointer passed the threshold while the owner was not movable and
     /// the canvas draws no marquee on an empty-area drag.
     property <bool> slid: false;
-    // True screen mouse position: absolute-position is in screen space,
-    // but self.mouse-x/y is in world space (inside scaled container)
-    property <length> screen-mouse-x: self.absolute-position.x + self.mouse-x * ViewportState.zoom;
-    property <length> screen-mouse-y: self.absolute-position.y + self.mouse-y * ViewportState.zoom;
+    // The pointer in the editor's space, which a forwarded marquee is read in
+    // and a Pin forwards in. Not absolute-position: that is window space, off
+    // by wherever the editor sits in its window. self.mouse-x/y is in world
+    // space (inside the scaled container).
+    property <length> pointer-x: root.owner-screen-x + self.mouse-x * ViewportState.zoom;
+    property <length> pointer-y: root.owner-screen-y + self.mouse-y * ViewportState.zoom;
     // True while this area forwards the configured marquee gesture to the
     // owning NodeEditor instead of selecting or dragging the item.
     property <bool> forwarding-box-selection: false;
@@ -928,8 +934,8 @@ component DragGesture inherits TouchArea {
             root.is-dragging = false;
             root.slid = false;
             root.press-cancelled = false;
-            root.start-abs-x = root.screen-mouse-x;
-            root.start-abs-y = root.screen-mouse-y;
+            root.press-x = root.pointer-x;
+            root.press-y = root.pointer-y;
             root.offset-x = 0px;
             root.offset-y = 0px;
             root.was-selected-on-press = root.selected;
@@ -941,8 +947,8 @@ component DragGesture inherits TouchArea {
                 event.modifiers.meta);
 
             if root.forwarding-box-selection {
-                BoxSelectionGesture.x = root.screen-mouse-x;
-                BoxSelectionGesture.y = root.screen-mouse-y;
+                BoxSelectionGesture.x = root.pointer-x;
+                BoxSelectionGesture.y = root.pointer-y;
                 BoxSelectionGesture.extends-selection = event.modifiers.shift;
                 BoxSelectionGesture.state = BoxSelectionGestureState.started;
                 BoxSelectionGesture.version += 1;
@@ -958,8 +964,8 @@ component DragGesture inherits TouchArea {
             if root.press-cancelled {
                 root.press-cancelled = false;
             } else if root.forwarding-box-selection {
-                BoxSelectionGesture.x = root.screen-mouse-x;
-                BoxSelectionGesture.y = root.screen-mouse-y;
+                BoxSelectionGesture.x = root.pointer-x;
+                BoxSelectionGesture.y = root.pointer-y;
                 BoxSelectionGesture.state = BoxSelectionGestureState.complete;
                 BoxSelectionGesture.version += 1;
             } else if root.is-dragging {
@@ -993,13 +999,13 @@ component DragGesture inherits TouchArea {
 
     moved => {
         if self.pressed && !root.press-cancelled && root.forwarding-box-selection {
-            BoxSelectionGesture.x = root.screen-mouse-x;
-            BoxSelectionGesture.y = root.screen-mouse-y;
+            BoxSelectionGesture.x = root.pointer-x;
+            BoxSelectionGesture.y = root.pointer-y;
             BoxSelectionGesture.state = BoxSelectionGestureState.updating;
             BoxSelectionGesture.version += 1;
         } else if self.pressed && !root.press-cancelled {
             if !root.is-dragging && !root.slid {
-                if abs(root.screen-mouse-x - root.start-abs-x) > root.drag-threshold || abs(root.screen-mouse-y - root.start-abs-y) > root.drag-threshold {
+                if abs(root.pointer-x - root.press-x) > root.drag-threshold || abs(root.pointer-y - root.press-y) > root.drag-threshold {
                     if root.movable {
                         root.is-dragging = true;
                         root.drag-started(root.was-selected-on-press || root.selection-intent-sent);
@@ -1009,8 +1015,8 @@ component DragGesture inherits TouchArea {
                         // channel once per change, so an update sent here
                         // too would hide the start.
                         root.forwarding-box-selection = true;
-                        BoxSelectionGesture.x = root.start-abs-x;
-                        BoxSelectionGesture.y = root.start-abs-y;
+                        BoxSelectionGesture.x = root.press-x;
+                        BoxSelectionGesture.y = root.press-y;
                         BoxSelectionGesture.extends-selection = root.shift-held;
                         BoxSelectionGesture.state = BoxSelectionGestureState.started;
                         BoxSelectionGesture.version += 1;
@@ -1020,8 +1026,8 @@ component DragGesture inherits TouchArea {
                 }
             }
             if root.is-dragging {
-                root.offset-x = (root.screen-mouse-x - root.start-abs-x) / ViewportState.zoom;
-                root.offset-y = (root.screen-mouse-y - root.start-abs-y) / ViewportState.zoom;
+                root.offset-x = (root.pointer-x - root.press-x) / ViewportState.zoom;
+                root.offset-y = (root.pointer-y - root.press-y) / ViewportState.zoom;
                 root.drag-moved(root.offset-x, root.offset-y);
             }
         }
@@ -1237,6 +1243,8 @@ export component BaseNode inherits Rectangle {
         y: 0;
         width: root.node-width;
         height: root.node-height;
+        owner-screen-x: root.screen-x;
+        owner-screen-y: root.screen-y;
         selected: root.selected;
         movable: root.movable;
 
@@ -1567,6 +1575,8 @@ export component BaseGroup inherits Rectangle {
         y: 0;
         width: root.group-width;
         height: root.header-only-input && !root.collapsed ? root.header-height : root.displayed-height;
+        owner-screen-x: root.screen-x;
+        owner-screen-y: root.screen-y;
         selected: root.selected;
 
         selection-requested(shift) => {

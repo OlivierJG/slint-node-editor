@@ -623,3 +623,54 @@ fn a_movable_node_beside_an_unmovable_one_still_drags() {
     );
     assert_eq!(harness.node_data(1).unwrap().x, 140.0);
 }
+
+#[test]
+fn a_box_started_on_a_node_or_pin_is_editor_relative() {
+    const EDITOR_X: f32 = 30.0;
+    const EDITOR_Y: f32 = 20.0;
+    let start_a_box = |harness: &MinimalTestHarness, from: Surface, modifier: bool| {
+        let (x, y) = match from {
+            Surface::Node => harness.world_to_screen((120.0, 180.0)),
+            _ => harness.pin_position(3).expect("node 1 output pin"),
+        };
+        if modifier {
+            harness.key_press(Key::Control);
+        }
+        harness.mouse_down(x, y);
+        harness.mouse_move(x + 300.0, y + 200.0);
+        harness.mouse_move(x + 400.0, y + 250.0);
+        harness.mouse_up(x + 400.0, y + 250.0);
+        if modifier {
+            harness.key_release(Key::Control);
+        }
+        (x - EDITOR_X, y - EDITOR_Y)
+    };
+    // A slide on the unmovable node, then the marquee modifier on it and on its pin.
+    for (from, modifier) in [
+        (Surface::Node, false),
+        (Surface::Node, true),
+        (Surface::Pin, true),
+    ] {
+        let harness = MinimalTestHarness::new();
+        harness.window.set_test_editor_x(EDITOR_X);
+        harness.window.set_test_editor_y(EDITOR_Y);
+        harness.window.set_test_unmovable_node_id(1);
+        realize(&harness);
+        // The modifier must reach the node, not the editor's own overlay.
+        harness.window.invoke_clear_editor_focus();
+        assert_eq!(
+            (
+                harness.window.get_editor_screen_x(),
+                harness.window.get_editor_screen_y()
+            ),
+            (EDITOR_X, EDITOR_Y)
+        );
+        let commits = record_box_commits(&harness);
+        let (x, y) = start_a_box(&harness, from, modifier);
+        assert_eq!(
+            *commits.borrow(),
+            vec![(x, y, 400.0, 250.0)],
+            "{from:?}, modifier {modifier}"
+        );
+    }
+}

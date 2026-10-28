@@ -143,6 +143,9 @@ export component MainWindow inherits Window {
     out property <float> height_: self.height / 1px;
     in property <length> editor-width: root.width;
     in property <length> editor-height: root.height;
+    // Where the editor sits in the window, so coordinate spaces can differ.
+    in property <length> test-editor-x: 0px;
+    in property <length> test-editor-y: 0px;
 
     in-out property <length> pan-x <=> editor.pan-x;
     in-out property <length> pan-y <=> editor.pan-y;
@@ -216,6 +219,8 @@ export component MainWindow inherits Window {
     }
 
     editor := NodeEditor {
+        x: root.test-editor-x;
+        y: root.test-editor-y;
         width: root.editor-width;
         height: root.editor-height;
         has-link-selection: true;
