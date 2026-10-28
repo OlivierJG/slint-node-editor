@@ -109,6 +109,7 @@ export component NodeEditor inherits FocusScope {
         NodeEditorComputations.grid-spacing = root.grid-spacing;
         NodeEditorComputations.bezier-min-offset = root.bezier-min-offset;
         NodeEditorGestureConfig.box-selection-modifier = root.box-selection-modifier;
+        NodeEditorGestureConfig.box-selection-on-empty = root.box-selection-on-empty;
         // Evaluate the watcher once so subsequent cancellation version changes
         // run their handler even if no visual binding reads the property.
         root.last-applied-cancellation-version = root.interaction-cancellation-watch;
@@ -615,6 +616,9 @@ export component NodeEditor inherits FocusScope {
     }
     changed box-selection-modifier => {
         NodeEditorGestureConfig.box-selection-modifier = root.box-selection-modifier;
+    }
+    changed box-selection-on-empty => {
+        NodeEditorGestureConfig.box-selection-on-empty = root.box-selection-on-empty;
     }
     
     // Watch LinkCreation global for pin-initiated link creation

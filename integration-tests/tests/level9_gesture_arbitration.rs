@@ -4,9 +4,11 @@ mod common;
 
 use common::harness::{
     BoxSelectionModifier, DragState, LinkCreation, LinkCreationState, MinimalTestHarness,
-    NodeEditorInternalCallbacks,
+    NodeEditorEvents, NodeEditorInternalCallbacks,
 };
 use slint::{platform::Key, ComponentHandle, Model};
+use std::cell::{Cell, RefCell};
+use std::rc::Rc;
 
 #[derive(Clone, Copy, Debug)]
 enum Surface {
@@ -464,4 +466,160 @@ fn a_hovered_link_is_released_when_the_pointer_leaves_the_canvas() {
     harness.mouse_move(x, y);
     harness.pointer_exit();
     assert_eq!(harness.window.get_hovered_link_id(), -1, "out of the window");
+}
+
+/// A committed box as `(x, y, width, height)`.
+type BoxRect = (f32, f32, f32, f32);
+
+/// Every box committed through the editor.
+fn record_box_commits(harness: &MinimalTestHarness) -> Rc<RefCell<Vec<BoxRect>>> {
+    let commits = Rc::new(RefCell::new(Vec::new()));
+    harness.window.on_box_selection_committed({
+        let commits = commits.clone();
+        move |x, y, width, height, _| commits.borrow_mut().push((x, y, width, height))
+    });
+    commits
+}
+
+fn double_click_counter(harness: &MinimalTestHarness) -> Rc<Cell<u32>> {
+    let count = Rc::new(Cell::new(0));
+    harness
+        .window
+        .global::<NodeEditorEvents>()
+        .on_node_double_clicked({
+            let count = count.clone();
+            move |_| count.set(count.get() + 1)
+        });
+    count
+}
+
+#[test]
+fn a_drag_on_an_unmovable_node_acts_as_one_on_empty_canvas() {
+    for box_selection_on_empty in [true, false] {
+        let harness = MinimalTestHarness::new();
+        harness.window.set_test_unmovable_node_id(1);
+        harness
+            .window
+            .set_box_selection_on_empty(box_selection_on_empty);
+        realize(&harness);
+        let commits = record_box_commits(&harness);
+        let hover = harness.window.global::<common::harness::HoverState>();
+
+        let (x, y) = surface_point(&harness, Surface::Node);
+        harness.mouse_down(x, y);
+        assert_eq!(harness.selected_node_ids(), vec![1]);
+        // Past the threshold but still inside the node, so its hover can be
+        // checked mid-gesture.
+        harness.mouse_move(x + 40.0, y - 30.0);
+        assert!(!harness.window.global::<DragState>().get_is_dragging());
+        assert_eq!(hover.get_hovered_node_id(), 1);
+        harness.mouse_move(650.0, 450.0);
+        assert_eq!(harness.window.get_is_selecting(), box_selection_on_empty);
+        harness.mouse_up(650.0, 450.0);
+
+        assert_idle(&harness);
+        assert!(harness.tracker.node_drag_started.borrow().is_empty());
+        assert!(harness.tracker.node_drag_ended.borrow().is_empty());
+        let node = harness.node_data(1).unwrap();
+        assert_eq!((node.x, node.y), (100.0, 100.0));
+        assert_eq!(harness.ctrl.cache().borrow().node_rects[&1].x, 100.0);
+        if box_selection_on_empty {
+            // Anchored at the press, as a marquee on empty canvas is.
+            assert_eq!(*commits.borrow(), vec![(x, y, 650.0 - x, 450.0 - y)]);
+        } else {
+            assert!(commits.borrow().is_empty());
+            assert_eq!(harness.selected_node_ids(), vec![1]);
+        }
+    }
+}
+
+#[test]
+fn sliding_off_a_selected_unmovable_node_is_not_a_click() {
+    let harness = MinimalTestHarness::new();
+    harness.window.set_test_unmovable_node_id(1);
+    // Off, so no marquee commit replaces the selection under test.
+    harness.window.set_box_selection_on_empty(false);
+    realize(&harness);
+    let node_b = harness.node_center(2).unwrap();
+    harness.click(node_b.0, node_b.1);
+    harness.shift_down();
+    let (x, y) = surface_point(&harness, Surface::Node);
+    harness.click(x, y);
+    harness.shift_up();
+    assert_eq!(harness.selected_node_ids(), vec![1, 2]);
+
+    // A click on a selected node would narrow the selection to it on release.
+    harness.drag(x, y, x + 40.0, y - 30.0);
+    assert_eq!(harness.selected_node_ids(), vec![1, 2]);
+    assert!(harness.tracker.node_drag_ended.borrow().is_empty());
+}
+
+#[test]
+fn a_slide_on_an_unmovable_node_does_not_arm_a_double_click() {
+    for box_selection_on_empty in [true, false] {
+        let harness = MinimalTestHarness::new();
+        harness.window.set_test_unmovable_node_id(1);
+        harness
+            .window
+            .set_box_selection_on_empty(box_selection_on_empty);
+        realize(&harness);
+        let double_clicks = double_click_counter(&harness);
+        let (x, y) = surface_point(&harness, Surface::Node);
+        harness.drag(x, y, x + 40.0, y - 30.0);
+        harness.click(x, y);
+        assert_eq!(double_clicks.get(), 0, "{box_selection_on_empty}");
+        // The same quick click pair does reach the host.
+        harness.click(x, y);
+        assert_eq!(double_clicks.get(), 1, "{box_selection_on_empty}");
+    }
+}
+
+#[test]
+fn dragging_a_node_carries_a_selected_unmovable_one() {
+    let harness = MinimalTestHarness::new();
+    harness.window.set_test_unmovable_node_id(2);
+    realize(&harness);
+    let node_b = harness.node_center(2).unwrap();
+    harness.click(node_b.0, node_b.1);
+    harness.shift_down();
+    let (x, y) = surface_point(&harness, Surface::Node);
+    harness.click(x, y);
+    harness.shift_up();
+    assert_eq!(harness.selected_node_ids(), vec![1, 2]);
+
+    let drawn_b = || {
+        (
+            harness.window.get_observed_unmovable_screen_x(),
+            harness.window.get_observed_unmovable_screen_y(),
+        )
+    };
+    let before = drawn_b();
+    harness.mouse_down(x, y);
+    harness.mouse_move(x + 40.0, y + 30.0);
+    assert_eq!(drawn_b(), (before.0 + 40.0, before.1 + 30.0));
+    harness.mouse_up(x + 40.0, y + 30.0);
+
+    assert_eq!(
+        *harness.tracker.node_drag_ended.borrow(),
+        vec![(40.0, 30.0)]
+    );
+    let node = harness.node_data(2).unwrap();
+    assert_eq!((node.x, node.y), (440.0, 230.0));
+}
+
+#[test]
+fn a_movable_node_beside_an_unmovable_one_still_drags() {
+    let harness = MinimalTestHarness::new();
+    harness.window.set_test_unmovable_node_id(2);
+    realize(&harness);
+    let (x, y) = surface_point(&harness, Surface::Node);
+    harness.mouse_down(x, y);
+    harness.mouse_move(x + 40.0, y + 30.0);
+    assert!(harness.window.global::<DragState>().get_is_dragging());
+    harness.mouse_up(x + 40.0, y + 30.0);
+    assert_eq!(
+        *harness.tracker.node_drag_ended.borrow(),
+        vec![(40.0, 30.0)]
+    );
+    assert_eq!(harness.node_data(1).unwrap().x, 140.0);
 }

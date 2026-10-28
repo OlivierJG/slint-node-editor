@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- `BaseNode.movable`, default `true`: off, a drag starting on the node does
+  what one on empty canvas does (a marquee when `box-selection-on-empty` is
+  on, nothing otherwise); the node does not move, no `start-node-drag` or
+  `end-node-drag` is reported, and the release is no click. A press still
+  selects it and its hover is unchanged. A drag of another selected node, or
+  of its group's sheet, still carries it.
 - Add node groups: `BaseGroup` and the default `GroupSheet`, rendered below the
   links for every row of `NodeEditor.groups`. Membership is `group-id` on the
   node rows; a sheet drags its members, and collapsing hides them through a

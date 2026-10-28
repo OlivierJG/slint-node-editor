@@ -164,6 +164,11 @@ export component MainWindow inherits Window {
     in-out property <int> test-input-pin-type: PinTypes.input;
     in-out property <bool> test-input-pin-visible: true;
     in-out property <bool> test-input-pin-enabled: true;
+    in-out property <int> test-unmovable-node-id: 0;
+    // Where the unmovable node is drawn, drag preview included: the geometry
+    // cache holds only committed positions.
+    out property <length> observed-unmovable-screen-x;
+    out property <length> observed-unmovable-screen-y;
     out property <LinkPath> observed-link-geometry: NodeEditorComputations.compute-link-path(3, 4, GeometryVersion.version);
 
     // Additional callbacks for testing
@@ -231,6 +236,22 @@ export component MainWindow inherits Window {
             input-pin-enabled: data.id == 1 ? root.test-input-pin-enabled : true;
             selected: data.selected;
             group-id: data.group-id;
+            movable: data.id != root.test-unmovable-node-id;
+            init => {
+                self.observe-if-unmovable();
+            }
+            changed screen-x => {
+                self.observe-if-unmovable();
+            }
+            changed screen-y => {
+                self.observe-if-unmovable();
+            }
+            function observe-if-unmovable() {
+                if !self.movable {
+                    root.observed-unmovable-screen-x = self.screen-x;
+                    root.observed-unmovable-screen-y = self.screen-y;
+                }
+            }
             embedded-control-clicked => {
                 if data.id == 1 {
                     root.embedded-control-click-count += 1;

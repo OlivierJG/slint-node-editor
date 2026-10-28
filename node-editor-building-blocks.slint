@@ -62,6 +62,9 @@ export enum BoxSelectionModifier {
 /// and their pins.
 export global NodeEditorGestureConfig {
     in-out property <BoxSelectionModifier> box-selection-modifier: BoxSelectionModifier.ctrl;
+    /// NodeEditor's `box-selection-on-empty`, so an unmovable node can act
+    /// as empty canvas does.
+    in-out property <bool> box-selection-on-empty: true;
 
     pure public function forces-box-selection(control: bool, alt: bool, shift: bool, meta: bool) -> bool {
         return (self.box-selection-modifier == BoxSelectionModifier.ctrl && (control || meta))
@@ -845,13 +848,18 @@ export component Link inherits Path {
 ///
 /// A press selects, or defers selection to the release when the item is
 /// already selected, so dragging a selected item keeps the selection. A move
-/// past the threshold drags; a release commits or, without a drag, clicks.
-/// The configured modifier forwards a marquee to the editor instead. Owners
-/// turn the callbacks into intents: the gesture holds no ids and touches no
-/// shared drag state itself.
+/// past the threshold drags, and the release commits it; a release without a
+/// move is a click. The configured modifier forwards a marquee to the editor
+/// instead, and so does a slide on an unmovable owner whenever a drag on
+/// empty canvas would draw one. Owners turn the callbacks into intents: the
+/// gesture holds no ids and touches no shared drag state itself.
 component DragGesture inherits TouchArea {
     /// The owner's current selection flag, latched at press time.
     in property <bool> selected: false;
+    /// Off, a move past the threshold starts no drag: no drag callback and
+    /// no offset. It does what a drag on empty canvas does instead, and the
+    /// release is no click, so it applies no deferred selection.
+    in property <bool> movable: true;
     /// True while a drag is in progress.
     out property <bool> is-dragging: false;
     /// Live drag offset in world units; zero outside a drag.
@@ -878,6 +886,9 @@ component DragGesture inherits TouchArea {
     property <bool> was-selected-on-press: false;
     /// Whether this press emitted a selection intent.
     property <bool> selection-intent-sent: false;
+    /// The pointer passed the threshold while the owner was not movable and
+    /// the canvas draws no marquee on an empty-area drag.
+    property <bool> slid: false;
     // True screen mouse position: absolute-position is in screen space,
     // but self.mouse-x/y is in world space (inside scaled container)
     property <length> screen-mouse-x: self.absolute-position.x + self.mouse-x * ViewportState.zoom;
@@ -898,6 +909,7 @@ component DragGesture inherits TouchArea {
 
     public function cancel-gesture() {
         root.is-dragging = false;
+        root.slid = false;
         root.forwarding-box-selection = false;
         root.press-cancelled = true;
         root.offset-x = 0px;
@@ -914,6 +926,7 @@ component DragGesture inherits TouchArea {
             // so `moved` and `up` never observe stale values.
             root.shift-held = event.modifiers.shift;
             root.is-dragging = false;
+            root.slid = false;
             root.press-cancelled = false;
             root.start-abs-x = root.screen-mouse-x;
             root.start-abs-y = root.screen-mouse-y;
@@ -956,6 +969,8 @@ component DragGesture inherits TouchArea {
                 root.is-dragging = false;
                 root.offset-x = 0px;
                 root.offset-y = 0px;
+            } else if root.slid {
+                root.slid = false;
             } else {
                 // Click without drag - apply the deferred selection now
                 if root.was-selected-on-press && !root.shift-held {
@@ -983,10 +998,25 @@ component DragGesture inherits TouchArea {
             BoxSelectionGesture.state = BoxSelectionGestureState.updating;
             BoxSelectionGesture.version += 1;
         } else if self.pressed && !root.press-cancelled {
-            if !root.is-dragging {
+            if !root.is-dragging && !root.slid {
                 if abs(root.screen-mouse-x - root.start-abs-x) > root.drag-threshold || abs(root.screen-mouse-y - root.start-abs-y) > root.drag-threshold {
-                    root.is-dragging = true;
-                    root.drag-started(root.was-selected-on-press || root.selection-intent-sent);
+                    if root.movable {
+                        root.is-dragging = true;
+                        root.drag-started(root.was-selected-on-press || root.selection-intent-sent);
+                    } else if NodeEditorGestureConfig.box-selection-on-empty {
+                        // Anchored at the press, as a marquee on empty canvas
+                        // is. The next move spans it: the editor reads the
+                        // channel once per change, so an update sent here
+                        // too would hide the start.
+                        root.forwarding-box-selection = true;
+                        BoxSelectionGesture.x = root.start-abs-x;
+                        BoxSelectionGesture.y = root.start-abs-y;
+                        BoxSelectionGesture.extends-selection = root.shift-held;
+                        BoxSelectionGesture.state = BoxSelectionGestureState.started;
+                        BoxSelectionGesture.version += 1;
+                    } else {
+                        root.slid = true;
+                    }
                 }
             }
             if root.is-dragging {
@@ -1017,6 +1047,13 @@ export component BaseNode inherits Rectangle {
     in property <int> group-id: 0;
     in property <length> world-x;
     in property <length> world-y;
+    /// Off, a drag starting on this node does what one on empty canvas does:
+    /// it draws a marquee when `box-selection-on-empty` is on, and nothing
+    /// otherwise. The node does not move, the host sees no node drag, and a
+    /// press still selects it. Only the node's own gesture is governed: a
+    /// drag of another selected node, or of its group's sheet, still carries
+    /// it.
+    in property <bool> movable: true;
 
     // === Accessibility ===
     accessible-role: list-item;
@@ -1201,6 +1238,7 @@ export component BaseNode inherits Rectangle {
         width: root.node-width;
         height: root.node-height;
         selected: root.selected;
+        movable: root.movable;
 
         selection-requested(shift) => {
             SelectionRequest.node-id = node-id;

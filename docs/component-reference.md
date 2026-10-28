@@ -317,6 +317,7 @@ in property <int> node-id;             // Unique node ID
 in property <length> world-x;          // X position in graph space
 in property <length> world-y;          // Y position in graph space
 in property <bool> selected: false;    // Selection state — bind it from your model row
+in property <bool> movable: true;      // Unreleased: off, a drag starting here acts as on empty canvas
 in property <length> node-width: 150px;
 in property <length> node-height: 100px;
 out property <length> screen-x;         // Includes the current global zoom/pan
@@ -325,6 +326,13 @@ out property <length> screen-y;
 
 `BaseNode` reads zoom and pan from `ViewportState`; consumers do not pass those
 values into each node.
+
+With `movable` off, a left drag starting on the node draws a marquee when the
+editor's `box-selection-on-empty` is on and does nothing otherwise; the node
+stays put and the host sees no `start-node-drag` or `end-node-drag`. A press
+still selects the node, and the release is no click. `movable` governs only
+the node's own gesture: a drag of another selected node, or of its group's
+sheet, still carries it.
 
 ## Pin
 
